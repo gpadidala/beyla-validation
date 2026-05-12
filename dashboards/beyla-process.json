@@ -1,0 +1,48 @@
+{
+  "uid": "beyla-process",
+  "title": "Beyla • Process Metrics",
+  "description": "Per-process CPU / memory / disk / network. Requires the `process` feature to be enabled on Beyla.",
+  "tags": ["beyla", "process"],
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "templating": {
+    "list": [
+      { "name": "datasource", "type": "datasource", "query": "prometheus", "current": { "text": "Prometheus", "value": "Prometheus" } },
+      { "name": "Service", "type": "query", "datasource": "${datasource}",
+        "query": "label_values(process_cpu_utilization_ratio, service_name)",
+        "refresh": 2, "includeAll": true, "multi": true }
+    ]
+  },
+  "panels": [
+    { "id": 1, "type": "timeseries", "title": "CPU utilization ratio per service",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+      "targets": [{ "expr": "sum by (service_name) (process_cpu_utilization_ratio{service_name=~\"$Service\"})", "refId": "A", "legendFormat": "{{service_name}}" }],
+      "fieldConfig": { "defaults": { "unit": "percentunit" } } },
+
+    { "id": 2, "type": "timeseries", "title": "Resident memory per service",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+      "targets": [{ "expr": "sum by (service_name) (process_memory_usage_bytes{service_name=~\"$Service\"})", "refId": "A", "legendFormat": "{{service_name}}" }],
+      "fieldConfig": { "defaults": { "unit": "bytes" } } },
+
+    { "id": 3, "type": "timeseries", "title": "Virtual memory per service",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 9 },
+      "targets": [{ "expr": "sum by (service_name) (process_memory_virtual_bytes{service_name=~\"$Service\"})", "refId": "A", "legendFormat": "{{service_name}}" }],
+      "fieldConfig": { "defaults": { "unit": "bytes" } } },
+
+    { "id": 4, "type": "timeseries", "title": "CPU time growth",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 9 },
+      "targets": [{ "expr": "sum by (service_name) (rate(process_cpu_time_seconds_total{service_name=~\"$Service\"}[5m]))", "refId": "A", "legendFormat": "{{service_name}}" }] },
+
+    { "id": 5, "type": "timeseries", "title": "Disk I/O bytes/s",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 18 },
+      "targets": [{ "expr": "sum by (service_name, disk_io_direction) (rate(process_disk_io_bytes_total{service_name=~\"$Service\"}[5m]))", "refId": "A", "legendFormat": "{{service_name}} {{disk_io_direction}}" }],
+      "fieldConfig": { "defaults": { "unit": "Bps" } } },
+
+    { "id": 6, "type": "timeseries", "title": "Network I/O bytes/s",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 18 },
+      "targets": [{ "expr": "sum by (service_name, network_io_direction) (rate(process_network_io_bytes_total{service_name=~\"$Service\"}[5m]))", "refId": "A", "legendFormat": "{{service_name}} {{network_io_direction}}" }],
+      "fieldConfig": { "defaults": { "unit": "Bps" } } }
+  ]
+}

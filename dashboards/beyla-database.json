@@ -1,0 +1,50 @@
+{
+  "uid": "beyla-database",
+  "title": "Beyla • Database Client",
+  "description": "DB client RED. Uses db_client_operation_duration_seconds (SQL / Mongo / Redis).",
+  "tags": ["beyla", "database", "red"],
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "templating": {
+    "list": [
+      { "name": "datasource", "type": "datasource", "query": "prometheus", "current": { "text": "Prometheus", "value": "Prometheus" } },
+      { "name": "Service", "type": "query", "datasource": "${datasource}",
+        "query": "label_values({__name__=~\"db_client_operation_duration_seconds_count|db_client_operation_duration_count\"}, service_name)",
+        "refresh": 2, "includeAll": true, "multi": true }
+    ]
+  },
+  "panels": [
+    { "id": 1, "type": "stat", "title": "DB calls / sec",
+      "gridPos": { "h": 5, "w": 8, "x": 0, "y": 0 },
+      "targets": [{ "expr": "sum(rate({__name__=~\"db_client_operation_duration_seconds_count|db_client_operation_duration_count\",service_name=~\"$Service\"}[5m]))", "refId": "A" }] },
+
+    { "id": 2, "type": "stat", "title": "DB P99 (s)",
+      "gridPos": { "h": 5, "w": 8, "x": 8, "y": 0 },
+      "targets": [{ "expr": "histogram_quantile(0.99, sum by (le) (rate({__name__=~\"db_client_operation_duration_seconds_bucket|db_client_operation_duration_bucket\",service_name=~\"$Service\"}[5m])))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "s" } } },
+
+    { "id": 3, "type": "stat", "title": "Distinct DB systems",
+      "gridPos": { "h": 5, "w": 8, "x": 16, "y": 0 },
+      "targets": [{ "expr": "count(count by (db_system) ({__name__=~\"db_client_operation_duration_seconds_count|db_client_operation_duration_count\"}))", "refId": "A" }] },
+
+    { "id": 10, "type": "timeseries", "title": "DB P50/P95/P99 by service",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 5 },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum by (le, service_name) (rate({__name__=~\"db_client_operation_duration_seconds_bucket|db_client_operation_duration_bucket\",service_name=~\"$Service\"}[5m])))", "refId": "A", "legendFormat": "{{service_name}} P50" },
+        { "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate({__name__=~\"db_client_operation_duration_seconds_bucket|db_client_operation_duration_bucket\",service_name=~\"$Service\"}[5m])))", "refId": "B", "legendFormat": "{{service_name}} P95" },
+        { "expr": "histogram_quantile(0.99, sum by (le, service_name) (rate({__name__=~\"db_client_operation_duration_seconds_bucket|db_client_operation_duration_bucket\",service_name=~\"$Service\"}[5m])))", "refId": "C", "legendFormat": "{{service_name}} P99" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } } },
+
+    { "id": 11, "type": "timeseries", "title": "DB call rate by db_system",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 14 },
+      "targets": [{ "expr": "sum by (db_system) (rate({__name__=~\"db_client_operation_duration_seconds_count|db_client_operation_duration_count\"}[5m]))", "refId": "A", "legendFormat": "{{db_system}}" }] },
+
+    { "id": 12, "type": "table", "title": "Slowest DB operations (P95)",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 14 },
+      "targets": [{ "expr": "topk(10, histogram_quantile(0.95, sum by (le, service_name, db_operation) (rate({__name__=~\"db_client_operation_duration_seconds_bucket|db_client_operation_duration_bucket\"}[5m]))))", "refId": "A", "format": "table", "instant": true }],
+      "fieldConfig": { "defaults": { "unit": "s" } } }
+  ]
+}

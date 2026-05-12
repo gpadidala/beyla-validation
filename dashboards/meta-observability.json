@@ -3,31 +3,51 @@
   "title": "Beyla • Cost of Observability",
   "tags": ["beyla", "meta", "cost"],
   "schemaVersion": 41,
-  "version": 1,
+  "version": 2,
   "refresh": "1m",
   "time": { "from": "now-24h", "to": "now" },
-  "templating": { "list": [{ "name": "datasource", "type": "datasource", "query": "prometheus" }] },
+  "templating": { "list": [{ "name": "datasource", "type": "datasource", "query": "prometheus", "current": { "text": "Prometheus", "value": "Prometheus" } }] },
   "panels": [
-    { "id": 1, "type": "stat", "title": "Beyla CPU burn % of cluster",
-      "gridPos": { "h": 5, "w": 8, "x": 0, "y": 0 },
+    { "id": 1, "type": "stat", "title": "Beyla CPU % of cluster",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
       "targets": [{ "expr": "beyla:cpu_burn_pct:5m", "refId": "A" }],
       "fieldConfig": { "defaults": { "unit": "percent", "thresholds": { "steps": [{ "color": "green" }, { "color": "yellow", "value": 2 }, { "color": "red", "value": 5 }] } } } },
-    { "id": 2, "type": "stat", "title": "Beyla mem burn % of cluster",
-      "gridPos": { "h": 5, "w": 8, "x": 8, "y": 0 },
+
+    { "id": 2, "type": "stat", "title": "Beyla mem % of cluster",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
       "targets": [{ "expr": "beyla:mem_burn_pct:5m", "refId": "A" }],
       "fieldConfig": { "defaults": { "unit": "percent", "thresholds": { "steps": [{ "color": "green" }, { "color": "yellow", "value": 2 }, { "color": "red", "value": 5 }] } } } },
-    { "id": 3, "type": "stat", "title": "Pyroscope storage growth (GB/day proj)",
-      "gridPos": { "h": 5, "w": 8, "x": 16, "y": 0 },
+
+    { "id": 3, "type": "stat", "title": "Pyroscope storage growth (GB/day)",
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
       "targets": [{ "expr": "sum(rate(pyroscope_distributor_received_compressed_bytes_total[1h])) * 86400 / 1024 / 1024 / 1024", "refId": "A" }],
       "fieldConfig": { "defaults": { "unit": "decgbytes" } } },
+
+    { "id": 4, "type": "stat", "title": "Trace exports per CPU-second",
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "targets": [{ "expr": "sum(rate(beyla_otel_trace_exports_total[5m])) / sum(rate(container_cpu_usage_seconds_total{pod=~\"beyla-.*|alloy-.*\"}[5m]))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "short" } } },
 
     { "id": 10, "type": "timeseries", "title": "CPU burn over time",
       "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
       "targets": [{ "expr": "beyla:cpu_burn_pct:5m", "refId": "A" }],
       "fieldConfig": { "defaults": { "unit": "percent" } } },
 
-    { "id": 11, "type": "timeseries", "title": "Telemetry efficiency (spans/CPU-sec)",
+    { "id": 11, "type": "timeseries", "title": "Memory burn over time",
       "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
-      "targets": [{ "expr": "sum(rate(beyla_otel_traces_total[5m])) / sum(rate(container_cpu_usage_seconds_total{pod=~\"beyla-.*\"}[5m]))", "refId": "A" }] }
+      "targets": [{ "expr": "beyla:mem_burn_pct:5m", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "percent" } } },
+
+    { "id": 12, "type": "timeseries", "title": "Telemetry efficiency — spans per CPU-second",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 14 },
+      "targets": [{ "expr": "sum(rate(beyla_otel_trace_exports_total[5m])) / sum(rate(container_cpu_usage_seconds_total{pod=~\"beyla-.*|alloy-.*\"}[5m]))", "refId": "A" }] },
+
+    { "id": 13, "type": "timeseries", "title": "Export error budget burn",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 14 },
+      "targets": [
+        { "expr": "sum(rate(beyla_otel_metric_export_errors_total[5m])) / clamp_min(sum(rate(beyla_otel_metric_exports_total[5m])), 1)", "refId": "A", "legendFormat": "metric error rate" },
+        { "expr": "sum(rate(beyla_otel_trace_export_errors_total[5m])) / clamp_min(sum(rate(beyla_otel_trace_exports_total[5m])), 1)",   "refId": "B", "legendFormat": "trace error rate"  }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit" } } }
   ]
 }

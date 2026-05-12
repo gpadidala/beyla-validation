@@ -1,0 +1,63 @@
+{
+  "uid": "beyla-grpc",
+  "title": "Beyla • gRPC RED",
+  "description": "RED metrics for gRPC (server + client). Uses rpc_server_duration_seconds / rpc_client_duration_seconds.",
+  "tags": ["beyla", "grpc", "red"],
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "templating": {
+    "list": [
+      { "name": "datasource", "type": "datasource", "query": "prometheus", "current": { "text": "Prometheus", "value": "Prometheus" } },
+      { "name": "Service", "type": "query", "datasource": "${datasource}",
+        "query": "label_values({__name__=~\"rpc_server_duration_seconds_count|rpc_server_duration_count\"}, service_name)",
+        "refresh": 2, "includeAll": true, "multi": true }
+    ]
+  },
+  "panels": [
+    { "id": 1, "type": "row", "title": "Inbound (server)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }, "collapsed": false, "panels": [] },
+
+    { "id": 10, "type": "timeseries", "title": "Duration P50/P95/P99 — gRPC server",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 1 },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum by (le, service_name) (rate({__name__=~\"rpc_server_duration_seconds_bucket|rpc_server_duration_bucket\",service_name=~\"$Service\"}[5m])))", "refId": "A", "legendFormat": "{{service_name}} P50" },
+        { "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate({__name__=~\"rpc_server_duration_seconds_bucket|rpc_server_duration_bucket\",service_name=~\"$Service\"}[5m])))", "refId": "B", "legendFormat": "{{service_name}} P95" },
+        { "expr": "histogram_quantile(0.99, sum by (le, service_name) (rate({__name__=~\"rpc_server_duration_seconds_bucket|rpc_server_duration_bucket\",service_name=~\"$Service\"}[5m])))", "refId": "C", "legendFormat": "{{service_name}} P99" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } } },
+
+    { "id": 11, "type": "timeseries", "title": "Request rate by status code",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 1 },
+      "targets": [{
+        "expr": "sum by (rpc_grpc_status_code) (rate({__name__=~\"rpc_server_duration_seconds_count|rpc_server_duration_count\",service_name=~\"$Service\"}[5m]))",
+        "refId": "A", "legendFormat": "{{rpc_grpc_status_code}}"
+      }] },
+
+    { "id": 12, "type": "table", "title": "Slowest gRPC methods (P95)",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 10 },
+      "targets": [{
+        "expr": "topk(10, histogram_quantile(0.95, sum by (le, service_name, rpc_method) (rate({__name__=~\"rpc_server_duration_seconds_bucket|rpc_server_duration_bucket\"}[5m]))))",
+        "refId": "A", "format": "table", "instant": true
+      }],
+      "fieldConfig": { "defaults": { "unit": "s" } } },
+
+    { "id": 2, "type": "row", "title": "Outbound (client)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 19 }, "collapsed": false, "panels": [] },
+
+    { "id": 20, "type": "timeseries", "title": "gRPC client P99",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 20 },
+      "targets": [{
+        "expr": "histogram_quantile(0.99, sum by (le, service_name) (rate({__name__=~\"rpc_client_duration_seconds_bucket|rpc_client_duration_bucket\",service_name=~\"$Service\"}[5m])))",
+        "refId": "A", "legendFormat": "{{service_name}}"
+      }],
+      "fieldConfig": { "defaults": { "unit": "s" } } },
+
+    { "id": 21, "type": "timeseries", "title": "gRPC client error rate",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 20 },
+      "targets": [{
+        "expr": "sum by (service_name) (rate({__name__=~\"rpc_client_duration_seconds_count|rpc_client_duration_count\",rpc_grpc_status_code!=\"0\",service_name=~\"$Service\"}[5m])) / sum by (service_name) (rate({__name__=~\"rpc_client_duration_seconds_count|rpc_client_duration_count\",service_name=~\"$Service\"}[5m]))",
+        "refId": "A", "legendFormat": "{{service_name}}"
+      }],
+      "fieldConfig": { "defaults": { "unit": "percentunit" } } }
+  ]
+}

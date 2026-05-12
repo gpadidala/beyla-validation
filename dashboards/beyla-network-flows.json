@@ -1,0 +1,42 @@
+{
+  "uid": "beyla-network-flows",
+  "title": "Beyla • Network Flows (eBPF)",
+  "description": "L4 flow visibility via Beyla's network feature. Requires `network.enable: true`.",
+  "tags": ["beyla", "network", "ebpf"],
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "templating": { "list": [{ "name": "datasource", "type": "datasource", "query": "prometheus", "current": { "text": "Prometheus", "value": "Prometheus" } }] },
+  "panels": [
+    { "id": 1, "type": "stat", "title": "Flow throughput (cluster total)",
+      "gridPos": { "h": 5, "w": 8, "x": 0, "y": 0 },
+      "targets": [{ "expr": "sum(rate(beyla_network_flow_bytes[5m]))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "Bps" } } },
+
+    { "id": 2, "type": "stat", "title": "Inter-zone bytes (cost driver)",
+      "gridPos": { "h": 5, "w": 8, "x": 8, "y": 0 },
+      "targets": [{ "expr": "sum(rate(beyla_network_inter_zone_bytes[5m]))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "Bps" } } },
+
+    { "id": 3, "type": "stat", "title": "Inter-zone ratio %",
+      "gridPos": { "h": 5, "w": 8, "x": 16, "y": 0 },
+      "targets": [{ "expr": "sum(rate(beyla_network_inter_zone_bytes[5m])) / clamp_min(sum(rate(beyla_network_flow_bytes[5m])), 1) * 100", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "percent" } } },
+
+    { "id": 10, "type": "timeseries", "title": "Flow bytes by direction",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
+      "targets": [{ "expr": "sum by (direction) (rate(beyla_network_flow_bytes[5m]))", "refId": "A", "legendFormat": "{{direction}}" }],
+      "fieldConfig": { "defaults": { "unit": "Bps" } } },
+
+    { "id": 11, "type": "timeseries", "title": "Top src_name → dst_name flows",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
+      "targets": [{ "expr": "topk(10, sum by (src_name, dst_name) (rate(beyla_network_flow_bytes[5m])))", "refId": "A", "legendFormat": "{{src_name}} → {{dst_name}}" }],
+      "fieldConfig": { "defaults": { "unit": "Bps" } } },
+
+    { "id": 12, "type": "timeseries", "title": "Cross-namespace flows",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 14 },
+      "targets": [{ "expr": "topk(10, sum by (src_namespace, dst_namespace) (rate(beyla_network_flow_bytes{src_namespace!=\"\",dst_namespace!=\"\"}[5m])))", "refId": "A", "legendFormat": "{{src_namespace}} → {{dst_namespace}}" }],
+      "fieldConfig": { "defaults": { "unit": "Bps" } } }
+  ]
+}

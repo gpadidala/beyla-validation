@@ -3,10 +3,15 @@
   "title": "Beyla • Kernel & eBPF",
   "tags": ["beyla", "kernel", "ebpf"],
   "schemaVersion": 41,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "time": { "from": "now-3h", "to": "now" },
-  "templating": { "list": [{ "name": "datasource", "type": "datasource", "query": "prometheus" }, { "name": "node", "type": "query", "datasource": "${datasource}", "query": "label_values(node_cpu_seconds_total, instance)", "refresh": 2, "includeAll": true, "multi": true }] },
+  "templating": {
+    "list": [
+      { "name": "datasource", "type": "datasource", "query": "prometheus", "current": { "text": "Prometheus", "value": "Prometheus" } },
+      { "name": "node", "type": "query", "datasource": "${datasource}", "query": "label_values(node_cpu_seconds_total, instance)", "refresh": 2, "includeAll": true, "multi": true }
+    ]
+  },
   "panels": [
     { "id": 1, "type": "timeseries", "title": "System CPU % per node",
       "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
@@ -22,17 +27,31 @@
       "targets": [{ "expr": "avg by (instance) (rate(node_cpu_seconds_total{mode=\"softirq\",instance=~\"$node\"}[5m])) * 100", "refId": "A", "legendFormat": "{{instance}}" }],
       "fieldConfig": { "defaults": { "unit": "percent" } } },
 
-    { "id": 4, "type": "timeseries", "title": "BPF map memory (per node)",
+    { "id": 4, "type": "timeseries", "title": "Beyla — instrumented processes per node",
       "gridPos": { "h": 9, "w": 12, "x": 12, "y": 9 },
-      "targets": [{ "expr": "sum by (instance) (node_bpf_map_memory_bytes{instance=~\"$node\"})", "refId": "A", "legendFormat": "{{instance}}" }],
-      "fieldConfig": { "defaults": { "unit": "bytes" } } },
+      "targets": [{ "expr": "sum by (instance) (beyla_instrumented_processes{instance=~\"$node|.*\"})", "refId": "A", "legendFormat": "{{instance}}" }] },
 
-    { "id": 5, "type": "stat", "title": "Beyla programs loaded (cluster-wide)",
-      "gridPos": { "h": 5, "w": 12, "x": 0, "y": 18 },
-      "targets": [{ "expr": "sum(beyla_ebpf_programs_loaded_total)", "refId": "A" }] },
+    { "id": 5, "type": "stat", "title": "Beyla pods running",
+      "gridPos": { "h": 5, "w": 8, "x": 0, "y": 18 },
+      "targets": [{ "expr": "count(beyla_internal_build_info)", "refId": "A" }] },
 
-    { "id": 6, "type": "stat", "title": "Load failures (1h)",
-      "gridPos": { "h": 5, "w": 12, "x": 12, "y": 18 },
-      "targets": [{ "expr": "sum(increase(beyla_ebpf_program_load_failures_total[1h]))", "refId": "A" }] }
+    { "id": 6, "type": "stat", "title": "Instrumentation errors (1h)",
+      "gridPos": { "h": 5, "w": 8, "x": 8, "y": 18 },
+      "targets": [{ "expr": "sum(increase(beyla_instrumentation_errors_total[1h]))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green" }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 10 }] } } } },
+
+    { "id": 7, "type": "stat", "title": "Processes Beyla missed (no instrumentation)",
+      "gridPos": { "h": 5, "w": 8, "x": 16, "y": 18 },
+      "targets": [{ "expr": "sum(rate(beyla_instrumentation_errors_total[5m]))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "short" } } },
+
+    { "id": 10, "type": "timeseries", "title": "eBPF tracer flush rate",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 23 },
+      "targets": [{ "expr": "sum by (instance) (rate(beyla_ebpf_tracer_flushes_count[5m]))", "refId": "A", "legendFormat": "{{instance}}" }] },
+
+    { "id": 11, "type": "timeseries", "title": "eBPF flush duration P99 (sec)",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 23 },
+      "targets": [{ "expr": "histogram_quantile(0.99, sum by (le, instance) (rate(beyla_ebpf_tracer_flushes_bucket[5m])))", "refId": "A", "legendFormat": "{{instance}}" }],
+      "fieldConfig": { "defaults": { "unit": "s" } } }
   ]
 }

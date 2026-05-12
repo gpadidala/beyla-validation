@@ -3,36 +3,55 @@
   "title": "Beyla • Network Impact",
   "tags": ["beyla", "network"],
   "schemaVersion": 41,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "time": { "from": "now-3h", "to": "now" },
-  "templating": { "list": [{ "name": "datasource", "type": "datasource", "query": "prometheus" }] },
+  "templating": {
+    "list": [
+      { "name": "datasource", "type": "datasource", "query": "prometheus", "current": { "text": "Prometheus", "value": "Prometheus" } }
+    ]
+  },
   "panels": [
     { "id": 1, "type": "stat", "title": "TCP retransmit rate %",
-      "gridPos": { "h": 5, "w": 8, "x": 0, "y": 0 },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
       "targets": [{ "expr": "sum(rate(node_netstat_Tcp_RetransSegs[5m])) / sum(rate(node_netstat_Tcp_OutSegs[5m])) * 100", "refId": "A" }],
       "fieldConfig": { "defaults": { "unit": "percent", "thresholds": { "steps": [{ "color": "green" }, { "color": "yellow", "value": 0.5 }, { "color": "red", "value": 1 }] } } } },
 
-    { "id": 2, "type": "stat", "title": "Service-graph P99",
-      "gridPos": { "h": 5, "w": 8, "x": 8, "y": 0 },
-      "targets": [{ "expr": "histogram_quantile(0.99, sum by (le) (rate(traces_service_graph_request_duration_seconds_bucket[5m])))", "refId": "A" }],
+    { "id": 2, "type": "stat", "title": "Service-graph P99 (Beyla traces)",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "targets": [{ "expr": "histogram_quantile(0.99, sum by (le) (rate(traces_service_graph_request_server_seconds_bucket[5m])))", "refId": "A" }],
       "fieldConfig": { "defaults": { "unit": "s" } } },
 
-    { "id": 3, "type": "stat", "title": "Beyla egress (MB/s)",
-      "gridPos": { "h": 5, "w": 8, "x": 16, "y": 0 },
-      "targets": [{ "expr": "sum(rate(container_network_transmit_bytes_total{pod=~\"beyla-.*\"}[5m])) / 1024 / 1024", "refId": "A" }],
-      "fieldConfig": { "defaults": { "unit": "decmbytes" } } },
+    { "id": 3, "type": "stat", "title": "Network flows / sec (Beyla)",
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "expr": "sum(rate(beyla_network_flow_bytes[5m]))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "Bps" } } },
 
-    { "id": 10, "type": "timeseries", "title": "Packet rate (RX) — current vs baseline",
+    { "id": 4, "type": "stat", "title": "Inter-zone egress (Beyla)",
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "targets": [{ "expr": "sum(rate(beyla_network_inter_zone_bytes[5m]))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "Bps" } } },
+
+    { "id": 10, "type": "timeseries", "title": "Packet rate — current vs baseline",
       "gridPos": { "h": 9, "w": 24, "x": 0, "y": 5 },
       "targets": [
         { "expr": "sum(rate(node_network_receive_packets_total{device!~\"lo|cali.*|veth.*\"}[5m]))", "refId": "A", "legendFormat": "current" },
         { "expr": "cluster:pkt_rate_baseline:5m", "refId": "B", "legendFormat": "baseline" }
       ] },
 
-    { "id": 11, "type": "timeseries", "title": "Service-to-service latency by pair",
-      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 14 },
-      "targets": [{ "expr": "histogram_quantile(0.99, sum by (le, client, server) (rate(traces_service_graph_request_duration_seconds_bucket[5m])))", "refId": "A", "legendFormat": "{{client}} → {{server}}" }],
-      "fieldConfig": { "defaults": { "unit": "s" } } }
+    { "id": 11, "type": "timeseries", "title": "Beyla network_flow_bytes by direction",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 14 },
+      "targets": [{ "expr": "sum by (direction) (rate(beyla_network_flow_bytes[5m]))", "refId": "A", "legendFormat": "{{direction}}" }],
+      "fieldConfig": { "defaults": { "unit": "Bps" } } },
+
+    { "id": 12, "type": "timeseries", "title": "Service-to-service latency (top pairs)",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 14 },
+      "targets": [{ "expr": "topk(10, histogram_quantile(0.99, sum by (le, client, server) (rate(traces_service_graph_request_server_seconds_bucket[5m]))))", "refId": "A", "legendFormat": "{{client}} → {{server}}" }],
+      "fieldConfig": { "defaults": { "unit": "s" } } },
+
+    { "id": 13, "type": "timeseries", "title": "Top inter-zone egress (cost driver)",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 23 },
+      "targets": [{ "expr": "topk(10, sum by (src_zone, dst_zone) (rate(beyla_network_inter_zone_bytes[5m])))", "refId": "A", "legendFormat": "{{src_zone}} → {{dst_zone}}" }],
+      "fieldConfig": { "defaults": { "unit": "Bps" } } }
   ]
 }

@@ -11,50 +11,78 @@ spec:
     - name: beyla.core
       interval: 30s
       rules:
+        # ── Beyla / Alloy DaemonSet coverage ────────────────────────────
         - alert: BeylaDaemonSetDegraded
           expr: |
-            kube_daemonset_status_number_ready{daemonset="beyla"}
-              / kube_daemonset_status_desired_number_scheduled{daemonset="beyla"} < 0.95
+            (
+              kube_daemonset_status_number_ready{daemonset=~"beyla|alloy"}
+              / kube_daemonset_status_desired_number_scheduled{daemonset=~"beyla|alloy"}
+            ) < 0.95
           for: 5m
           labels: { severity: critical, team: platform }
           annotations:
-            summary: "Beyla DaemonSet has unready pods on > 5% of nodes"
-            description: "{{ $value | humanizePercentage }} of beyla pods ready in {{ $labels.cluster }}. Investigate node health and eBPF attach failures."
-            runbook: https://runbooks.example.com/beyla/daemonset-degraded
+            summary: "{{ $labels.daemonset }} has unready pods on > 5% of nodes"
+            description: "{{ $value | humanizePercentage }} ready in {{ $labels.cluster }}. Investigate node health and eBPF attach failures."
+            runbook: https://github.com/gpadidala/beyla-validation/blob/main/runbooks/02-incident-high-cpu.md
 
-        - alert: BeylaProbeLoadFailures
-          expr: sum(rate(beyla_ebpf_program_load_failures_total[5m])) > 0
-          for: 2m
+        # ── eBPF / instrumentation failures ─────────────────────────────
+        # Real metric: beyla_instrumentation_errors_total (replaces the
+        # non-existent beyla_ebpf_program_load_failures_total).
+        - alert: BeylaInstrumentationErrors
+          expr: sum(rate(beyla_instrumentation_errors_total[5m])) > 0
+          for: 5m
           labels: { severity: critical, team: platform }
           annotations:
-            summary: "Beyla eBPF program load failures"
-            description: "{{ $value }} load failures/sec. Likely kernel/BTF mismatch."
-            runbook: https://runbooks.example.com/beyla/probe-load-failures
+            summary: "Beyla failing to instrument processes ({{ $value }}/sec)"
+            description: "uprobe/kprobe attach errors. Likely kernel/BTF mismatch or missing symbols."
+            runbook: https://github.com/gpadidala/beyla-validation/blob/main/compatibility/matrix.md
 
-        - alert: BeylaCPUThrottling
+        # ── Beyla absent ─────────────────────────────────────────────────
+        - alert: BeylaNoProcessesInstrumented
+          expr: sum(beyla_instrumented_processes) == 0
+          for: 10m
+          labels: { severity: critical, team: platform }
+          annotations:
+            summary: "Beyla is running but instrumenting zero processes"
+            description: "Check discovery.pod_label_selector and exclude_namespaces. Beyla may not be seeing any opted-in pods."
+
+        # ── OTel export errors ─────────────────────────────────────────
+        - alert: BeylaTraceExportErrors
           expr: |
-            sum(rate(container_cpu_cfs_throttled_periods_total{pod=~"beyla-.*"}[5m]))
-              / sum(rate(container_cpu_cfs_periods_total{pod=~"beyla-.*"}[5m])) > 0.05
+            sum(rate(beyla_otel_trace_export_errors_total[5m]))
+              / clamp_min(sum(rate(beyla_otel_trace_exports_total[5m])), 1) > 0.05
+          for: 5m
+          labels: { severity: warning, team: platform }
+          annotations:
+            summary: "> 5% of trace exports failing"
+            description: "{{ $value | humanizePercentage }} error rate. Check Tempo/Alloy connectivity."
+
+        - alert: BeylaMetricExportErrors
+          expr: |
+            sum(rate(beyla_otel_metric_export_errors_total[5m]))
+              / clamp_min(sum(rate(beyla_otel_metric_exports_total[5m])), 1) > 0.05
+          for: 5m
+          labels: { severity: warning, team: platform }
+          annotations:
+            summary: "> 5% of metric exports failing"
+            description: "{{ $value | humanizePercentage }} error rate. Check Prometheus remote_write target."
+
+        # ── eBPF backpressure (proxy via flush histogram) ──────────────
+        - alert: BeylaFlushLatencyHigh
+          expr: histogram_quantile(0.99, sum by (le) (rate(beyla_ebpf_tracer_flushes_bucket[5m]))) > 1
           for: 10m
           labels: { severity: warning, team: platform }
           annotations:
-            summary: "Beyla pods CPU-throttled > 5%"
-            description: "Throttling = {{ $value | humanizePercentage }}. Raise limits or drop sampling."
+            summary: "eBPF ringbuf flush P99 > 1s"
+            description: "Beyla can't drain ringbuf fast enough — events may be lost. Reduce sampling or scale Beyla CPU."
 
-        - alert: BeylaExportQueueSaturated
-          expr: max(beyla_export_queue_size / beyla_export_queue_capacity) > 0.8
-          for: 5m
-          labels: { severity: warning, team: platform }
-          annotations:
-            summary: "Beyla export queue > 80% full"
-            description: "Backpressure imminent. Check Tempo / Pyroscope ingest health."
-
-        - alert: BeylaTraceDropsHigh
+        # ── Beyla CPU throttle (cgroup level) ──────────────────────────
+        - alert: BeylaCPUThrottling
           expr: |
-            sum(rate(beyla_otel_traces_dropped_total[5m]))
-              / clamp_min(sum(rate(beyla_otel_traces_total[5m])), 1) > 0.1
-          for: 5m
+            sum(rate(container_cpu_cfs_throttled_periods_total{pod=~"beyla-.*|alloy-.*"}[5m]))
+              / sum(rate(container_cpu_cfs_periods_total{pod=~"beyla-.*|alloy-.*"}[5m])) > 0.05
+          for: 10m
           labels: { severity: warning, team: platform }
           annotations:
-            summary: "> 10% of traces being dropped by Beyla"
-            description: "Drop rate = {{ $value | humanizePercentage }}."
+            summary: "Beyla / Alloy pods CPU-throttled > 5%"
+            description: "Throttling = {{ $value | humanizePercentage }}. Raise limits or drop trace sampling."

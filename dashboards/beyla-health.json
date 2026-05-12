@@ -3,56 +3,75 @@
   "title": "Beyla • Health",
   "tags": ["beyla", "ebpf", "platform"],
   "schemaVersion": 41,
-  "version": 1,
+  "version": 2,
   "timezone": "",
   "refresh": "30s",
   "time": { "from": "now-1h", "to": "now" },
   "templating": {
     "list": [
-      { "name": "datasource", "type": "datasource", "query": "prometheus", "current": { "text": "Prometheus", "value": "Prometheus" } },
+      { "name": "datasource", "type": "datasource", "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" } },
       { "name": "cluster", "type": "query", "datasource": "${datasource}",
-        "query": "label_values(beyla_build_info, cluster)", "refresh": 2, "includeAll": true, "multi": true },
-      { "name": "namespace", "type": "query", "datasource": "${datasource}",
-        "query": "label_values(beyla_build_info{cluster=~\"$cluster\"}, k8s_namespace_name)", "refresh": 2, "includeAll": true, "multi": true }
+        "query": "label_values(beyla_internal_build_info, cluster)",
+        "refresh": 2, "includeAll": true, "multi": true },
+      { "name": "instance", "type": "query", "datasource": "${datasource}",
+        "query": "label_values(beyla_internal_build_info{cluster=~\"$cluster\"}, instance)",
+        "refresh": 2, "includeAll": true, "multi": true }
     ]
   },
   "panels": [
-    { "id": 1, "type": "stat", "title": "DaemonSet ready %",
+    { "id": 1, "type": "stat", "title": "Beyla pods (or Alloy-with-Beyla)",
       "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
-      "targets": [{ "expr": "kube_daemonset_status_number_ready{daemonset=\"beyla\",cluster=~\"$cluster\"} / kube_daemonset_status_desired_number_scheduled{daemonset=\"beyla\",cluster=~\"$cluster\"} * 100", "refId": "A" }],
-      "fieldConfig": { "defaults": { "unit": "percent", "thresholds": { "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 90 }, { "color": "green", "value": 99 }] } } } },
+      "targets": [{ "expr": "count(beyla_internal_build_info{cluster=~\"$cluster\"})", "refId": "A" }] },
 
-    { "id": 2, "type": "stat", "title": "Pods running",
+    { "id": 2, "type": "stat", "title": "Processes instrumented (cluster total)",
       "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
-      "targets": [{ "expr": "count(beyla_build_info{cluster=~\"$cluster\"})", "refId": "A" }] },
+      "targets": [{ "expr": "sum(beyla_instrumented_processes{cluster=~\"$cluster\"})", "refId": "A" }] },
 
-    { "id": 3, "type": "stat", "title": "eBPF load failures (1h)",
+    { "id": 3, "type": "stat", "title": "Instrumentation errors (1h)",
       "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
-      "targets": [{ "expr": "sum(increase(beyla_ebpf_program_load_failures_total{cluster=~\"$cluster\"}[1h]))", "refId": "A" }],
-      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } } },
+      "targets": [{ "expr": "sum(increase(beyla_instrumentation_errors_total{cluster=~\"$cluster\"}[1h]))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 10 }] } } } },
 
-    { "id": 4, "type": "stat", "title": "Trace drop rate (5m)",
+    { "id": 4, "type": "stat", "title": "Export errors / sec (metrics + traces)",
       "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
-      "targets": [{ "expr": "sum(rate(beyla_otel_traces_dropped_total{cluster=~\"$cluster\"}[5m]))", "refId": "A" }] },
+      "targets": [{ "expr": "sum(rate(beyla_otel_metric_export_errors_total{cluster=~\"$cluster\"}[5m])) + sum(rate(beyla_otel_trace_export_errors_total{cluster=~\"$cluster\"}[5m]))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green" }, { "color": "red", "value": 0.1 }] } } } },
 
-    { "id": 10, "type": "timeseries", "title": "Beyla CPU per pod",
+    { "id": 10, "type": "timeseries", "title": "Instrumented processes — per pod",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
-      "targets": [{ "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{pod=~\"beyla-.*\",cluster=~\"$cluster\"}[5m]))", "refId": "A", "legendFormat": "{{pod}}" }],
-      "fieldConfig": { "defaults": { "unit": "short" } } },
+      "targets": [{ "expr": "sum by (instance) (beyla_instrumented_processes{cluster=~\"$cluster\",instance=~\"$instance\"})", "refId": "A", "legendFormat": "{{instance}}" }] },
 
-    { "id": 11, "type": "timeseries", "title": "Beyla memory working set",
+    { "id": 11, "type": "timeseries", "title": "OTel export throughput",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
-      "targets": [{ "expr": "sum by (pod) (container_memory_working_set_bytes{pod=~\"beyla-.*\",cluster=~\"$cluster\"})", "refId": "A", "legendFormat": "{{pod}}" }],
+      "targets": [
+        { "expr": "sum(rate(beyla_otel_metric_exports_total{cluster=~\"$cluster\"}[5m]))", "refId": "A", "legendFormat": "metric exports/s" },
+        { "expr": "sum(rate(beyla_otel_trace_exports_total{cluster=~\"$cluster\"}[5m]))",  "refId": "B", "legendFormat": "trace exports/s" }
+      ] },
+
+    { "id": 12, "type": "timeseries", "title": "Export errors",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        { "expr": "sum(rate(beyla_otel_metric_export_errors_total{cluster=~\"$cluster\"}[5m]))", "refId": "A", "legendFormat": "metrics" },
+        { "expr": "sum(rate(beyla_otel_trace_export_errors_total{cluster=~\"$cluster\"}[5m]))",  "refId": "B", "legendFormat": "traces"  }
+      ] },
+
+    { "id": 13, "type": "timeseries", "title": "eBPF ringbuf flush P95 (sec)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum by (le) (rate(beyla_ebpf_tracer_flushes_bucket{cluster=~\"$cluster\"}[5m])))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "s" } } },
+
+    { "id": 14, "type": "timeseries", "title": "Beyla CPU per pod",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "targets": [{ "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{pod=~\"beyla-.*|alloy-.*\",cluster=~\"$cluster\"}[5m]))", "refId": "A", "legendFormat": "{{pod}}" }] },
+
+    { "id": 15, "type": "timeseries", "title": "Beyla memory working set",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "targets": [{ "expr": "sum by (pod) (container_memory_working_set_bytes{pod=~\"beyla-.*|alloy-.*\",cluster=~\"$cluster\"})", "refId": "A", "legendFormat": "{{pod}}" }],
       "fieldConfig": { "defaults": { "unit": "bytes" } } },
 
-    { "id": 12, "type": "timeseries", "title": "Export queue saturation",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
-      "targets": [{ "expr": "max(beyla_export_queue_size{cluster=~\"$cluster\"} / beyla_export_queue_capacity{cluster=~\"$cluster\"})", "refId": "A" }],
-      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1, "min": 0 } } },
-
-    { "id": 13, "type": "timeseries", "title": "CPU throttle %",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
-      "targets": [{ "expr": "sum(rate(container_cpu_cfs_throttled_periods_total{pod=~\"beyla-.*\",cluster=~\"$cluster\"}[5m])) / sum(rate(container_cpu_cfs_periods_total{pod=~\"beyla-.*\",cluster=~\"$cluster\"}[5m])) * 100", "refId": "A" }],
-      "fieldConfig": { "defaults": { "unit": "percent" } } }
+    { "id": 16, "type": "stat", "title": "Beyla version distribution",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 28 },
+      "targets": [{ "expr": "count by (revision) (beyla_internal_build_info{cluster=~\"$cluster\"})", "refId": "A", "legendFormat": "{{revision}}" }] }
   ]
 }

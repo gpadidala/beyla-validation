@@ -119,7 +119,7 @@ beyla-validation/
 ├── config/                # Beyla configs (when running standalone)
 ├── validation/            # 16 layered shell scripts (00-alloy + 01-15)
 ├── promql/                # Query library by domain
-├── dashboards/            # 8 Grafana JSON dashboards
+├── dashboards/            # 13 Grafana JSON dashboards (incl. vendored official 19923)
 ├── alerts/                # 7 PrometheusRule CRs (incl. alloy-alerts)
 ├── slo/                   # Sloth SLOs + burn-rate alerts
 ├── chaos/                 # 5 ChaosMesh experiments
@@ -136,20 +136,27 @@ beyla-validation/
 
 ---
 
-## Dashboards (all validated by Playwright)
+## Dashboards (13 total, all validated by Playwright)
 
-| UID | Title | Required panels validated |
-|-----|------|--------------------------|
-| `alloy-health` | Alloy • Pipeline Health | pods running, components healthy %, metric/trace throughput |
-| `beyla-health` | Beyla • Health | DaemonSet ready %, pods, CPU/memory per pod |
-| `beyla-app-delta` | Beyla • Application Latency Δ vs Baseline | worst Δ P99, regression count, P99 current vs baseline |
-| `beyla-kernel` | Beyla • Kernel & eBPF | system CPU %, context switches |
-| `beyla-pyroscope` | Beyla • Pyroscope Pipeline | ingest MB/s, active series, write failures |
-| `beyla-network` | Beyla • Network Impact | TCP retransmits, service-graph P99 |
-| `beyla-scorecard` | Beyla • Rollout Scorecard | per-layer scores, overall GO/NO-GO |
-| `beyla-meta-obs` | Beyla • Cost of Observability | CPU/mem burn %, storage growth projection |
+Every metric name is verified against [grafana.com/docs/beyla/latest/metrics](https://grafana.com/docs/beyla/latest/metrics/) — see [docs/beyla-metrics-reference.md](docs/beyla-metrics-reference.md) for the canonical list and the common "looks-real-but-doesn't-exist" trap list.
 
-Each panel listed has a Playwright assertion that it renders **with data**, not "No data". Screenshots are committed to `e2e/screenshots/` for visual review.
+| UID | Title | Source / key metrics |
+|-----|------|---------------------|
+| `beyla-red-official` | Beyla • RED Metrics (official, 19923) | Vendored from [grafana.com/grafana/dashboards/19923](https://grafana.com/grafana/dashboards/19923-beyla-red-metrics/) — official HTTP + gRPC RED |
+| `alloy-health` | Alloy • Pipeline Health | Component graph, exporter throughput, tail-sampling decisions |
+| `beyla-health` | Beyla • Health | `beyla_internal_build_info`, `beyla_instrumented_processes`, `beyla_otel_*_exports_total` |
+| `beyla-app-delta` | Beyla • Application Latency Δ vs Baseline | `http_server_request_duration_*` vs recording-rule baseline |
+| `beyla-grpc` *(optional)* | Beyla • gRPC RED | `rpc_server_duration_seconds_*`, `rpc_client_duration_seconds_*` |
+| `beyla-database` *(optional)* | Beyla • Database Client | `db_client_operation_duration_seconds_*` |
+| `beyla-process` *(optional)* | Beyla • Process Metrics | `process_cpu_utilization_ratio`, `process_memory_usage_bytes` |
+| `beyla-network-flows` *(optional)* | Beyla • Network Flows (eBPF) | `beyla_network_flow_bytes`, `beyla_network_inter_zone_bytes` |
+| `beyla-kernel` | Beyla • Kernel & eBPF | Node CPU + `beyla_ebpf_tracer_flushes` |
+| `beyla-pyroscope` | Beyla • Pyroscope Pipeline | Pyroscope distributor + ingester metrics |
+| `beyla-network` | Beyla • Network Impact | TCP retransmits + service graph |
+| `beyla-scorecard` | Beyla • Rollout Scorecard | Per-layer scores + overall GO/NO-GO |
+| `beyla-meta-obs` | Beyla • Cost of Observability | `beyla:cpu_burn_pct:5m` recording rules |
+
+Required panels in each dashboard have a Playwright assertion that they render **with data**, not "No data". Dashboards marked *(optional)* are skipped automatically if the underlying Beyla feature isn't enabled. Screenshots saved to `e2e/screenshots/` after every run.
 
 ---
 

@@ -1,42 +1,68 @@
-# Application-layer queries.
-# All queries assume Beyla labels: service_name, k8s_namespace_name,
-# http_route, http_response_status_code, cluster.
+# Application-layer queries — VERIFIED against official Beyla docs and
+# the upstream dashboard 19923. See docs/beyla-metrics-reference.md.
+#
+# Beyla emits histograms under TWO names — with and without the _seconds
+# suffix. Every query below uses `__name__=~"...seconds...|..."` to match
+# both. Don't shortcut this — older Beyla versions only emit one.
 
-# ── Latency (P50 / P95 / P99) ────────────────────────────────────────────
+# ── Latency (server / inbound) ───────────────────────────────────────────
 app_latency_p50 = histogram_quantile(0.50,
-  sum by (le, service_name, k8s_namespace_name)
-    (rate(http_server_request_duration_seconds_bucket[5m])))
+  sum by (le, service_name, k8s_namespace_name) (rate(
+    {__name__=~"http_server_request_duration_seconds_bucket|http_server_request_duration_bucket"}[5m])))
 
 app_latency_p95 = histogram_quantile(0.95,
-  sum by (le, service_name, k8s_namespace_name)
-    (rate(http_server_request_duration_seconds_bucket[5m])))
+  sum by (le, service_name, k8s_namespace_name) (rate(
+    {__name__=~"http_server_request_duration_seconds_bucket|http_server_request_duration_bucket"}[5m])))
 
 app_latency_p99 = histogram_quantile(0.99,
-  sum by (le, service_name, k8s_namespace_name)
-    (rate(http_server_request_duration_seconds_bucket[5m])))
+  sum by (le, service_name, k8s_namespace_name) (rate(
+    {__name__=~"http_server_request_duration_seconds_bucket|http_server_request_duration_bucket"}[5m])))
 
 # ── Throughput (RPS) ─────────────────────────────────────────────────────
-app_rps = sum by (service_name, k8s_namespace_name)
-    (rate(http_server_request_duration_seconds_count[5m]))
+app_rps = sum by (service_name, k8s_namespace_name) (rate(
+    {__name__=~"http_server_request_duration_seconds_count|http_server_request_duration_count"}[5m]))
 
 # ── Error rate (5xx as % of total) ───────────────────────────────────────
-app_error_rate = sum by (service_name) (rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[5m]))
-                 /
-                 sum by (service_name) (rate(http_server_request_duration_seconds_count[5m]))
+app_error_rate =
+  sum by (service_name) (rate({__name__=~"http_server_request_duration_seconds_count|http_server_request_duration_count",http_response_status_code=~"5.."}[5m]))
+  /
+  sum by (service_name) (rate({__name__=~"http_server_request_duration_seconds_count|http_server_request_duration_count"}[5m]))
 
-# ── Latency Δ vs recorded baseline ───────────────────────────────────────
-# Requires a recording rule app:latency_p99_baseline:5m{service_name=…}
+# ── Latency Δ vs recorded baseline (see alerts/recording-rules.yaml) ─────
 app_latency_p99_delta_pct =
-  ( histogram_quantile(0.99, sum by (le, service_name) (rate(http_server_request_duration_seconds_bucket[5m])))
+  ( histogram_quantile(0.99, sum by (le, service_name) (rate(
+      {__name__=~"http_server_request_duration_seconds_bucket|http_server_request_duration_bucket"}[5m])))
     - on (service_name) app:latency_p99_baseline:5m )
-    / on (service_name) app:latency_p99_baseline:5m * 100
-
-# ── RED golden signals ───────────────────────────────────────────────────
-app_red_rate     = sum by (service_name) (rate(http_server_request_duration_seconds_count[1m]))
-app_red_errors   = sum by (service_name) (rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[1m]))
-app_red_duration = histogram_quantile(0.99, sum by (le, service_name) (rate(http_server_request_duration_seconds_bucket[1m])))
+  / on (service_name) app:latency_p99_baseline:5m * 100
 
 # ── Endpoint-level hot path (top 10 slowest routes) ──────────────────────
 hot_routes = topk(10, histogram_quantile(0.99,
-  sum by (le, service_name, http_route)
-    (rate(http_server_request_duration_seconds_bucket[5m]))))
+  sum by (le, service_name, http_route) (rate(
+    {__name__=~"http_server_request_duration_seconds_bucket|http_server_request_duration_bucket"}[5m]))))
+
+# ── Outbound (client) RED ────────────────────────────────────────────────
+http_client_p99 = histogram_quantile(0.99,
+  sum by (le, service_name) (rate(
+    {__name__=~"http_client_request_duration_seconds_bucket|http_client_request_duration_bucket"}[5m])))
+
+http_client_rps = sum by (service_name) (rate(
+    {__name__=~"http_client_request_duration_seconds_count|http_client_request_duration_count"}[5m]))
+
+# ── gRPC RED ─────────────────────────────────────────────────────────────
+rpc_server_p99 = histogram_quantile(0.99,
+  sum by (le, service_name) (rate(
+    {__name__=~"rpc_server_duration_seconds_bucket|rpc_server_duration_bucket"}[5m])))
+
+rpc_error_rate =
+  sum by (service_name) (rate({__name__=~"rpc_server_duration_seconds_count|rpc_server_duration_count",rpc_grpc_status_code!="0"}[5m]))
+  /
+  sum by (service_name) (rate({__name__=~"rpc_server_duration_seconds_count|rpc_server_duration_count"}[5m]))
+
+# ── Database client RED ──────────────────────────────────────────────────
+db_p99 = histogram_quantile(0.99,
+  sum by (le, service_name, db_system) (rate(
+    {__name__=~"db_client_operation_duration_seconds_bucket|db_client_operation_duration_bucket"}[5m])))
+
+# ── Body sizes (cardinality-friendly aggregates) ─────────────────────────
+http_server_request_body_p95 = histogram_quantile(0.95,
+  sum by (le, service_name) (rate(http_server_request_body_size_bytes_bucket[5m])))

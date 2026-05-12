@@ -23,7 +23,7 @@ attach_failures=0
 for p in "${pods[@]}"; do
   pod="${p##*/}"
 
-  # 1. attach success: pod ready AND beyla_probes_loaded_total >= expected
+  # 1. attach success: pod ready AND beyla_instrumented_processes >= expected
   ready=$(kctl get -n "$NS" "$p" -o jsonpath='{.status.containerStatuses[0].ready}')
   if [[ "$ready" != "true" ]]; then
     report_check "attach_${pod}" fail 0 "pod not ready" $LAYER

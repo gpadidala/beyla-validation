@@ -1,24 +1,49 @@
-# Beyla self-metrics.
+# Beyla self-metrics — VERIFIED against grafana.com/docs/beyla/latest/metrics.
+# DO NOT add `beyla_otel_traces_total` / `beyla_build_info` / etc. — those
+# names don't exist. See docs/beyla-metrics-reference.md for the full list
+# of metrics-that-look-real-but-aren't.
 
 # ── Build / version info ─────────────────────────────────────────────────
-beyla_pods_by_version = count by (version) (beyla_build_info)
+beyla_pods_total       = count(beyla_internal_build_info)
+beyla_versions_running = count by (version, revision) (beyla_internal_build_info)
 
-# ── Trace export ─────────────────────────────────────────────────────────
-beyla_traces_exported = sum(rate(beyla_otel_traces_total[5m]))
-beyla_traces_dropped  = sum(rate(beyla_otel_traces_dropped_total[5m]))
-beyla_traces_failed   = sum(rate(beyla_otel_traces_failed_total[5m]))
+# ── Processes Beyla is instrumenting ────────────────────────────────────
+beyla_instrumented_processes_total = sum(beyla_instrumented_processes)
+beyla_instrumented_per_node        = sum by (instance) (beyla_instrumented_processes)
 
-# ── Export queue saturation (0-1) ────────────────────────────────────────
-beyla_queue_saturation = max(beyla_export_queue_size / beyla_export_queue_capacity)
+# ── Instrumentation errors (uprobe/kprobe attach failures) ──────────────
+# Replaces the imaginary `beyla_ebpf_program_load_failures_total`.
+beyla_instrumentation_error_rate = sum(rate(beyla_instrumentation_errors_total[5m]))
+beyla_instrumentation_errors_by_type =
+  sum by (error_type) (rate(beyla_instrumentation_errors_total[5m]))
 
-# ── Beyla CPU & memory ───────────────────────────────────────────────────
-beyla_cpu_usage_cores = sum by (pod) (rate(container_cpu_usage_seconds_total{pod=~"beyla-.*"}[5m]))
-beyla_mem_bytes       = sum by (pod) (container_memory_working_set_bytes{pod=~"beyla-.*"})
+# ── OTel export — success and error ─────────────────────────────────────
+beyla_metric_export_rate   = sum(rate(beyla_otel_metric_exports_total[5m]))
+beyla_metric_export_errors = sum(rate(beyla_otel_metric_export_errors_total[5m]))
+beyla_trace_export_rate    = sum(rate(beyla_otel_trace_exports_total[5m]))
+beyla_trace_export_errors  = sum(rate(beyla_otel_trace_export_errors_total[5m]))
 
-# ── Beyla CPU throttle % ─────────────────────────────────────────────────
-beyla_cpu_throttle_pct = sum(rate(container_cpu_cfs_throttled_periods_total{pod=~"beyla-.*"}[5m]))
-                       / sum(rate(container_cpu_cfs_periods_total{pod=~"beyla-.*"}[5m])) * 100
+# Combined error rate (use in SLOs)
+beyla_export_error_ratio =
+  ( sum(rate(beyla_otel_metric_export_errors_total[5m]))
+  + sum(rate(beyla_otel_trace_export_errors_total[5m])) )
+  /
+  clamp_min(
+    sum(rate(beyla_otel_metric_exports_total[5m]))
+  + sum(rate(beyla_otel_trace_exports_total[5m])), 1
+  )
 
-# ── DaemonSet coverage ───────────────────────────────────────────────────
-beyla_ds_coverage = kube_daemonset_status_number_ready{daemonset="beyla"} /
-                    kube_daemonset_status_desired_number_scheduled{daemonset="beyla"}
+# ── eBPF flushes (proxy for backpressure) ───────────────────────────────
+# When the ringbuf flushes faster, Beyla is keeping up. When flush count
+# drops while traffic stays constant, the ringbuf is overflowing.
+beyla_flush_rate   = sum(rate(beyla_ebpf_tracer_flushes_count[5m]))
+beyla_flush_p95_s  = histogram_quantile(0.95, sum by (le) (rate(beyla_ebpf_tracer_flushes_bucket[5m])))
+beyla_flush_p99_s  = histogram_quantile(0.99, sum by (le) (rate(beyla_ebpf_tracer_flushes_bucket[5m])))
+
+# ── Beyla / Alloy resource use ───────────────────────────────────────────
+beyla_cpu_usage_cores = sum by (pod) (rate(container_cpu_usage_seconds_total{pod=~"beyla-.*|alloy-.*"}[5m]))
+beyla_mem_bytes       = sum by (pod) (container_memory_working_set_bytes{pod=~"beyla-.*|alloy-.*"})
+
+beyla_cpu_throttle_pct =
+  sum(rate(container_cpu_cfs_throttled_periods_total{pod=~"beyla-.*|alloy-.*"}[5m]))
+  / sum(rate(container_cpu_cfs_periods_total{pod=~"beyla-.*|alloy-.*"}[5m])) * 100

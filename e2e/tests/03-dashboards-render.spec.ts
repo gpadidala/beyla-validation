@@ -5,16 +5,25 @@ import { DASHBOARDS } from "../fixtures/dashboards";
 //  1. confirm it is provisioned (the API returns metadata for the uid)
 //  2. open it in the browser, wait for panels to render
 //  3. assert each required panel is present
-//  4. assert no panel shows the "No data" placeholder
+//  4. assert no required panel shows the "No data" placeholder
 //  5. capture a screenshot for visual review
 //
-// Panels that genuinely have no data in local dev (e.g. multi-cluster
-// queries) are allow-listed via `requiredPanels` — only those titles must
-// have data; the rest can be empty without failing the test.
+// Optional dashboards (gRPC, DB, process, network-flows) are skipped if
+// their smokeQuery returns 0 — those panels depend on Beyla features
+// that may not be enabled in every environment.
 
 test.describe("dashboards render with data", () => {
   for (const d of DASHBOARDS) {
     test(`${d.uid} — ${d.title}`, async ({ loggedIn: page, grafana }) => {
+      // Optional dashboards: skip if the underlying data simply isn't there.
+      if (d.optional && d.smokeQuery) {
+        const probe = await grafana.promQuery(d.smokeQuery);
+        const v = Number(probe.data.result[0]?.value?.[1] ?? 0);
+        if (v === 0) {
+          test.skip(true, `optional dashboard — smoke query returned 0 (feature not enabled in this env)`);
+        }
+      }
+
       // 1. API check
       const meta = await grafana.get<{ dashboard: { title: string }; meta: { url: string } }>(
         `/api/dashboards/uid/${d.uid}`,
@@ -57,7 +66,7 @@ test.describe("dashboards render with data", () => {
       });
 
       // 6. Optional: smoke-query the data source the dashboard depends on.
-      if (d.smokeQuery) {
+      if (d.smokeQuery && !d.optional) {
         const r = await grafana.promQuery(d.smokeQuery);
         expect(r.status).toBe("success");
       }

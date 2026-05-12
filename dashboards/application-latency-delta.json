@@ -1,52 +1,78 @@
 {
   "uid": "beyla-app-delta",
   "title": "Beyla • Application Latency Δ vs Baseline",
+  "description": "Application RED metrics with Δ-vs-baseline. Queries match both http_server_request_duration_seconds_* and http_server_request_duration_* (Beyla emits both names).",
   "tags": ["beyla", "application", "sli"],
   "schemaVersion": 41,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "time": { "from": "now-3h", "to": "now" },
   "templating": {
     "list": [
       { "name": "datasource", "type": "datasource", "query": "prometheus", "current": { "text": "Prometheus", "value": "Prometheus" } },
-      { "name": "cluster", "type": "query", "datasource": "${datasource}", "query": "label_values(http_server_request_duration_seconds_count, cluster)", "refresh": 2, "includeAll": true, "multi": true },
-      { "name": "namespace", "type": "query", "datasource": "${datasource}", "query": "label_values(http_server_request_duration_seconds_count{cluster=~\"$cluster\"}, k8s_namespace_name)", "refresh": 2, "includeAll": true, "multi": true },
-      { "name": "service", "type": "query", "datasource": "${datasource}", "query": "label_values(http_server_request_duration_seconds_count{cluster=~\"$cluster\",k8s_namespace_name=~\"$namespace\"}, service_name)", "refresh": 2, "includeAll": true, "multi": true }
+      { "name": "cluster", "type": "query", "datasource": "${datasource}",
+        "query": "label_values({__name__=~\"http_server_request_duration_seconds_count|http_server_request_duration_count\"}, cluster)",
+        "refresh": 2, "includeAll": true, "multi": true },
+      { "name": "namespace", "type": "query", "datasource": "${datasource}",
+        "query": "label_values({__name__=~\"http_server_request_duration_seconds_count|http_server_request_duration_count\", cluster=~\"$cluster\"}, k8s_namespace_name)",
+        "refresh": 2, "includeAll": true, "multi": true },
+      { "name": "Service", "type": "query", "datasource": "${datasource}",
+        "query": "label_values({__name__=~\"http_server_request_duration_seconds_count|http_server_request_duration_count\", cluster=~\"$cluster\"}, service_name)",
+        "refresh": 2, "includeAll": true, "multi": true }
     ]
   },
   "panels": [
     { "id": 1, "type": "stat", "title": "Worst Δ P99 vs baseline",
       "gridPos": { "h": 5, "w": 8, "x": 0, "y": 0 },
-      "targets": [{ "expr": "max by (service_name) ((histogram_quantile(0.99, sum by (le, service_name) (rate(http_server_request_duration_seconds_bucket{cluster=~\"$cluster\",k8s_namespace_name=~\"$namespace\",service_name=~\"$service\"}[5m]))) - on(service_name) app:latency_p99_baseline:5m) / on(service_name) app:latency_p99_baseline:5m * 100)", "refId": "A", "legendFormat": "{{service_name}}" }],
+      "targets": [{
+        "expr": "max by (service_name) (\n  (\n    histogram_quantile(0.99, sum by (le, service_name)\n      (rate({__name__=~\"http_server_request_duration_seconds_bucket|http_server_request_duration_bucket\",cluster=~\"$cluster\",service_name=~\"$Service\"}[5m])))\n    - on(service_name) app:latency_p99_baseline:5m\n  ) / on(service_name) app:latency_p99_baseline:5m * 100\n)",
+        "refId": "A", "legendFormat": "{{service_name}}"
+      }],
       "fieldConfig": { "defaults": { "unit": "percent", "thresholds": { "steps": [{ "color": "green" }, { "color": "yellow", "value": 5 }, { "color": "red", "value": 10 }] } } } },
 
     { "id": 2, "type": "stat", "title": "Services regressing > 5%",
       "gridPos": { "h": 5, "w": 8, "x": 8, "y": 0 },
-      "targets": [{ "expr": "count(((histogram_quantile(0.99, sum by (le, service_name) (rate(http_server_request_duration_seconds_bucket{cluster=~\"$cluster\"}[5m]))) - on(service_name) app:latency_p99_baseline:5m) / on(service_name) app:latency_p99_baseline:5m) > 0.05)", "refId": "A" }] },
+      "targets": [{
+        "expr": "count(\n  (histogram_quantile(0.99, sum by (le, service_name)\n    (rate({__name__=~\"http_server_request_duration_seconds_bucket|http_server_request_duration_bucket\",cluster=~\"$cluster\"}[5m])))\n   - on(service_name) app:latency_p99_baseline:5m)\n  / on(service_name) app:latency_p99_baseline:5m > 0.05\n)", "refId": "A"
+      }] },
 
-    { "id": 3, "type": "stat", "title": "Error rate now",
+    { "id": 3, "type": "stat", "title": "5xx error rate now",
       "gridPos": { "h": 5, "w": 8, "x": 16, "y": 0 },
-      "targets": [{ "expr": "sum(rate(http_server_request_duration_seconds_count{cluster=~\"$cluster\",http_response_status_code=~\"5..\"}[5m])) / sum(rate(http_server_request_duration_seconds_count{cluster=~\"$cluster\"}[5m]))", "refId": "A" }],
+      "targets": [{
+        "expr": "sum(rate({__name__=~\"http_server_request_duration_seconds_count|http_server_request_duration_count\",cluster=~\"$cluster\",http_response_status_code=~\"5..\"}[5m])) / sum(rate({__name__=~\"http_server_request_duration_seconds_count|http_server_request_duration_count\",cluster=~\"$cluster\"}[5m]))",
+        "refId": "A"
+      }],
       "fieldConfig": { "defaults": { "unit": "percentunit" } } },
 
-    { "id": 10, "type": "timeseries", "title": "P99 latency by service (current vs baseline)",
+    { "id": 10, "type": "timeseries", "title": "P99 server latency — current vs baseline",
       "gridPos": { "h": 9, "w": 24, "x": 0, "y": 5 },
       "targets": [
-        { "expr": "histogram_quantile(0.99, sum by (le, service_name) (rate(http_server_request_duration_seconds_bucket{cluster=~\"$cluster\",service_name=~\"$service\"}[5m])))", "refId": "A", "legendFormat": "{{service_name}} current" },
-        { "expr": "app:latency_p99_baseline:5m{service_name=~\"$service\"}", "refId": "B", "legendFormat": "{{service_name}} baseline" }
+        { "expr": "histogram_quantile(0.99, sum by (le, service_name)\n  (rate({__name__=~\"http_server_request_duration_seconds_bucket|http_server_request_duration_bucket\",cluster=~\"$cluster\",service_name=~\"$Service\"}[5m])))",
+          "refId": "A", "legendFormat": "{{service_name}} current" },
+        { "expr": "app:latency_p99_baseline:5m{service_name=~\"$Service\"}", "refId": "B", "legendFormat": "{{service_name}} baseline" }
       ],
       "fieldConfig": { "defaults": { "unit": "s" } } },
 
-    { "id": 11, "type": "timeseries", "title": "Throughput (RPS) Δ",
+    { "id": 11, "type": "timeseries", "title": "Request rate (RPS) by service",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
-      "targets": [
-        { "expr": "sum by (service_name) (rate(http_server_request_duration_seconds_count{cluster=~\"$cluster\",service_name=~\"$service\"}[5m]))", "refId": "A", "legendFormat": "{{service_name}} now" },
-        { "expr": "app:rps_baseline:5m{service_name=~\"$service\"}", "refId": "B", "legendFormat": "{{service_name}} baseline" }
-      ] },
+      "targets": [{
+        "expr": "sum by (service_name) (rate({__name__=~\"http_server_request_duration_seconds_count|http_server_request_duration_count\",cluster=~\"$cluster\",service_name=~\"$Service\"}[5m]))",
+        "refId": "A", "legendFormat": "{{service_name}}"
+      }] },
 
-    { "id": 12, "type": "timeseries", "title": "Top 10 slowest routes",
+    { "id": 12, "type": "timeseries", "title": "Top 10 slowest routes (P99)",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
-      "targets": [{ "expr": "topk(10, histogram_quantile(0.99, sum by (le, service_name, http_route) (rate(http_server_request_duration_seconds_bucket{cluster=~\"$cluster\"}[5m]))))", "refId": "A", "legendFormat": "{{service_name}}{{http_route}}" }],
-      "fieldConfig": { "defaults": { "unit": "s" } } }
+      "targets": [{
+        "expr": "topk(10, histogram_quantile(0.99, sum by (le, service_name, http_route)\n  (rate({__name__=~\"http_server_request_duration_seconds_bucket|http_server_request_duration_bucket\",cluster=~\"$cluster\"}[5m]))))",
+        "refId": "A", "legendFormat": "{{service_name}}{{http_route}}"
+      }],
+      "fieldConfig": { "defaults": { "unit": "s" } } },
+
+    { "id": 13, "type": "timeseries", "title": "Error rate by status code class",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 22 },
+      "targets": [{
+        "expr": "sum by (http_response_status_code) (rate({__name__=~\"http_server_request_duration_seconds_count|http_server_request_duration_count\",cluster=~\"$cluster\",service_name=~\"$Service\"}[5m]))",
+        "refId": "A", "legendFormat": "{{http_response_status_code}}"
+      }] }
   ]
 }
