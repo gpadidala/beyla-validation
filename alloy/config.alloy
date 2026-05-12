@@ -232,7 +232,11 @@ otelcol.exporter.otlp "tempo" {
   client {
     endpoint = sys.env("TEMPO_OTLP_ENDPOINT")
     tls {
-      insecure = true
+      // For in-cluster Tempo we always treat the link as insecure
+      // (mTLS is enforced by the service mesh, not by Beyla→Tempo).
+      // The cert-verification toggle is below.
+      insecure             = true
+      insecure_skip_verify = sys.env("ALLOY_TLS_INSECURE") == "true"
     }
   }
 }

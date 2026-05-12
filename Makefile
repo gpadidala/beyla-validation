@@ -18,10 +18,32 @@ REPORTS        := reports/$(ENV)/$(shell date -u +%Y%m%dT%H%M%SZ)
 KUBECTL        ?= kubectl
 HELM           ?= helm
 
+# ── Container engine ────────────────────────────────────────────────────
+# ENGINE accepts: docker | podman   (auto-detected if unset)
+# COMPOSE is what we actually invoke: `docker compose` or `podman compose`.
+# Override either: `make dev-up ENGINE=podman`
+ENGINE         ?= $(shell command -v docker >/dev/null 2>&1 && echo docker || (command -v podman >/dev/null 2>&1 && echo podman) || echo docker)
+COMPOSE        := $(ENGINE) compose
+COMPOSE_FILES  := -f docker-compose.yaml $(if $(filter podman,$(ENGINE)),-f docker-compose.podman.yaml,)
+
+# ── Insecure mode ──────────────────────────────────────────────────────
+# INSECURE=1 → curl uses -k, Alloy TLS uses insecure_skip_verify, Helm
+# values get tls.insecure=true. Useful behind corporate MITM proxies, in
+# self-signed-cert clusters, or for one-off triage. Never set in prod.
+INSECURE       ?= 0
+CURL_TLS_FLAG  := $(if $(filter 1,$(INSECURE)),-k,)
+HELM_TLS_FLAGS := $(if $(filter 1,$(INSECURE)),--set alloy.exporters.tlsInsecure=true,)
+export INSECURE CURL_TLS_FLAG
+
 # -------------------------------------------------------------------------
 .PHONY: help
 help: ## show this help
 	@awk 'BEGIN {FS = ":.*##"; printf "Targets:\n"} /^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-26s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+	@echo ""
+	@echo "Globals:"
+	@echo "  ENGINE=$(ENGINE)     container engine (docker|podman, auto-detected)"
+	@echo "  INSECURE=$(INSECURE)         set to 1 for -k / tls.insecure_skip_verify"
+	@echo "  ENV=$(ENV)            target rollout phase (canary|staging|prod)"
 
 # =========================================================================
 # Preflight & lint
@@ -52,6 +74,7 @@ alloy-install: preflight lint ## install Alloy + Beyla pipeline for $(ENV)
 	@$(HELM) upgrade --install $(RELEASE) grafana/alloy \
 		-n $(NAMESPACE) \
 		-f $(ALLOY_VALUES) -f $(ALLOY_ENV) \
+		$(HELM_TLS_FLAGS) \
 		--atomic --timeout 5m
 	@$(KUBECTL) rollout status ds/$(RELEASE) -n $(NAMESPACE) --timeout=5m
 
@@ -174,26 +197,38 @@ cost: ## project storage/CPU/network cost for $(ENV)
 	@python3 cost/cost-model.py --inputs cost/cost-model-inputs.yaml --env $(ENV)
 
 # =========================================================================
-# Local dev (docker-compose: Alloy + LGTM)
+# Local dev (Alloy + LGTM, via docker compose or podman compose).
+# The compose file is the same; only the engine differs.
+# Run `make dev-up ENGINE=podman` to use Podman.
 # =========================================================================
 .PHONY: dev-up
-dev-up: ## bring up local Alloy + LGTM stack
-	@docker compose up -d
+dev-up: ## bring up local Alloy + LGTM stack (ENGINE=docker|podman)
+	@echo "using $(COMPOSE)"
+	@$(COMPOSE) $(COMPOSE_FILES) up -d
 	@bash e2e/scripts/wait-for-grafana.sh
 	@echo ""
 	@echo "→ Grafana:   http://localhost:3000  (anon admin)"
 	@echo "→ Alloy UI:  http://localhost:12345"
 	@echo "→ Prometheus: http://localhost:9090"
-	@echo "→ Tempo:     http://localhost:3200"
+	@echo "→ Tempo:     http://localhost:13200"
 	@echo "→ Pyroscope: http://localhost:4040"
 
 .PHONY: dev-down
 dev-down: ## tear down local stack + volumes
-	@docker compose down -v
+	@$(COMPOSE) $(COMPOSE_FILES) down -v
 
 .PHONY: dev-logs
 dev-logs: ## tail Alloy logs from the local stack
-	@docker compose logs -f alloy
+	@$(COMPOSE) $(COMPOSE_FILES) logs -f alloy
+
+.PHONY: dev-ps
+dev-ps: ## show local stack container state
+	@$(COMPOSE) $(COMPOSE_FILES) ps
+
+.PHONY: dev-restart-alloy
+dev-restart-alloy: ## force-recreate Alloy (handles eBPF zombie state)
+	@$(ENGINE) rm -f $$($(ENGINE) ps -aq --filter "name=beyla-validation-alloy") 2>/dev/null || true
+	@$(COMPOSE) $(COMPOSE_FILES) up -d alloy
 
 # =========================================================================
 # Dashboards & alerts

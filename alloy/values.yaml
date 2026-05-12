@@ -44,6 +44,14 @@ alloy:
       value: http://pyroscope.monitoring.svc.cluster.local:4040
     - name: ALLOY_LOG_LEVEL
       value: info
+    # ── Insecure TLS toggle ────────────────────────────────────────────
+    # "true" disables certificate verification on the Tempo OTLP, Pyroscope,
+    # and Prometheus remote_write exporters. Use only when:
+    #   - the LGTM stack uses self-signed certs in a non-prod cluster
+    #   - you're behind a corporate MITM proxy
+    # Override per-env via values-prod.yaml or `--set alloy.exporters.tlsInsecure=true`.
+    - name: ALLOY_TLS_INSECURE
+      value: "false"
     - name: HOSTNAME
       valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
 

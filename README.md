@@ -23,18 +23,29 @@ Target stack: **Alloy 1.4+ · Beyla (embedded) · Prometheus · Tempo · Loki ·
 
 ---
 
-## Two-minute quickstart (local docker-compose)
+## Two-minute quickstart (local stack)
+
+Works with **Docker or Podman** — auto-detected, override with `ENGINE=`.
 
 ```bash
-make dev-up                    # boots Alloy + LGTM + a demo app
-make e2e                       # Playwright: validates the whole pipeline end-to-end
-make e2e-report                # open the HTML report with screenshots of every dashboard
+make dev-up                          # boots Alloy + LGTM + nginx + k6 (auto-detects engine)
+make dev-up    ENGINE=podman         # force Podman (see docs/podman-setup.md for macOS)
+make e2e                             # Playwright validates every dashboard end-to-end
+make e2e-report                      # open the HTML report with screenshots
 
 # When you're done:
-make dev-down
+make dev-down                        # ENGINE picked up from the same env
 ```
 
 The Playwright suite **brings up Grafana, logs in, navigates every dashboard, asserts panels show data, follows trace→profile links, and screenshots each dashboard.** If any link in the chain is broken, exactly one test fails.
+
+### Global flags
+
+| Flag | Default | What it does |
+|------|---------|-------------|
+| `ENGINE=docker\|podman` | auto-detect | which container engine to drive; Podman docs at [docs/podman-setup.md](docs/podman-setup.md) |
+| `INSECURE=1` | `0` | adds `curl -k` everywhere + sets `tls.insecure_skip_verify` in Alloy exporters + `--set alloy.exporters.tlsInsecure=true` in Helm. Use behind MITM proxies, against self-signed clusters, or for one-off triage. **Never set in prod.** |
+| `ENV=canary\|staging\|prod` | `canary` | rollout phase — picks `alloy/values-<env>.yaml` |
 
 ---
 

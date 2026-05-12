@@ -21,6 +21,15 @@ ok()    { printf '\033[32m✓\033[0m %s\n' "$*"; }
 warn()  { printf '\033[33m!\033[0m %s\n' "$*"; }
 fail()  { printf '\033[31m✗\033[0m %s\n' "$*" >&2; }
 
+# ----- Insecure TLS toggle ----------------------------------------------
+# INSECURE=1 → curl -k for every helper call. Useful behind MITM proxies
+# or against clusters with self-signed certs. Never set in prod.
+CURL_TLS_FLAG="${CURL_TLS_FLAG:-}"
+if [[ "${INSECURE:-0}" == "1" && -z "$CURL_TLS_FLAG" ]]; then
+  CURL_TLS_FLAG="-k"
+  warn "INSECURE=1 — TLS verification disabled for all curl calls"
+fi
+
 # ----- Report writer -----------------------------------------------------
 # Usage: report_check <name> <pass|fail|warn> <score 0-100> <message> [layer]
 report_check() {
@@ -41,7 +50,7 @@ report_check() {
 # Usage: prom_query 'sum(rate(...))' → prints scalar value, or empty on error.
 prom_query() {
   local q="$1"
-  curl -sfG --data-urlencode "query=${q}" "${PROM_URL}/api/v1/query" \
+  curl $CURL_TLS_FLAG -sfG --data-urlencode "query=${q}" "${PROM_URL}/api/v1/query" \
     | jq -r '.data.result[0].value[1] // empty'
 }
 
