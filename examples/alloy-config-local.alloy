@@ -1,22 +1,30 @@
 // Local-dev Alloy config: same shape as alloy/config.alloy, but talks to
 // docker-compose hostnames and uses always_on tracing for visibility.
+//
+// River syntax notes:
+//   - one assignment per line; no semicolons
+//   - blocks use {} with one statement per line
 
-logging { level = "debug"; format = "logfmt" }
+logging {
+  level  = "debug"
+  format = "logfmt"
+}
 
-livedebugging { enabled = true }
+livedebugging {
+  enabled = true
+}
 
 beyla.ebpf "default" {
-  open_port = "8080"
+  open_port = "80"
 
   discovery {
     services {
-      // local dev: instrument every Go/Rust process on the host
       exe_path = ".*"
     }
   }
 
   routes {
-    unmatched = "heuristic"
+    unmatched        = "heuristic"
     ignored_patterns = ["/metrics", "/healthz"]
   }
 
@@ -32,6 +40,7 @@ beyla.ebpf "default" {
 
 otelcol.processor.batch "default" {
   timeout = "2s"
+
   output {
     metrics = [otelcol.exporter.prometheus.default.input]
     traces  = [otelcol.exporter.otlp.tempo.input]
@@ -46,13 +55,17 @@ prometheus.remote_write "default" {
   endpoint {
     url = "http://prometheus:9090/api/v1/write"
   }
-  external_labels = { cluster = "local-dev" }
+  external_labels = {
+    cluster = "local-dev",
+  }
 }
 
 otelcol.exporter.otlp "tempo" {
   client {
     endpoint = "tempo:4317"
-    tls { insecure = true }
+    tls {
+      insecure = true
+    }
   }
 }
 
