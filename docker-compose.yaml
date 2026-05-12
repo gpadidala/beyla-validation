@@ -16,11 +16,15 @@ services:
   alloy:
     image: grafana/alloy:v1.4.2
     privileged: true
-    # NOTE: on macOS Docker Desktop, `network_mode: host` + `pid: host` bind
-    # to the Linux VM rather than the Mac. We use bridge networking locally
-    # so the live debug UI is reachable from your browser. eBPF visibility
-    # into other containers requires running on Linux (a real K8s node) —
-    # see alloy/values.yaml for the production DaemonSet config.
+    init: true                  # reap eBPF child processes cleanly on restart
+    # pid: host gives Alloy/Beyla visibility into the Docker Desktop Linux
+    # VM's PID namespace — which includes every other container's
+    # processes. Without this, Beyla only sees its own process and emits
+    # zero application metrics.
+    # We keep BRIDGE networking (no `network_mode: host`) so port 12345
+    # remains reachable from the Mac. In production (K8s DaemonSet) we
+    # use both hostPID AND hostNetwork — see alloy/values.yaml.
+    pid: host
     command:
       - run
       - /etc/alloy/config.alloy
@@ -28,6 +32,9 @@ services:
       - --stability.level=experimental         # beyla.ebpf requires this
     volumes:
       - ./examples/alloy-config-local.alloy:/etc/alloy/config.alloy:ro
+      - /sys/kernel/debug:/sys/kernel/debug:ro
+      - /sys/fs/bpf:/sys/fs/bpf
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
     ports: ["12345:12345"]
     depends_on: [prometheus, tempo, pyroscope]
 

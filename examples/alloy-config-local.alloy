@@ -1,12 +1,14 @@
-// Local-dev Alloy config: same shape as alloy/config.alloy, but talks to
-// docker-compose hostnames and uses always_on tracing for visibility.
+// Local-dev Alloy config. Talks to docker-compose hostnames.
 //
-// River syntax notes:
-//   - one assignment per line; no semicolons
-//   - blocks use {} with one statement per line
+// IMPORTANT: when Beyla runs as an Alloy component, it publishes its
+// metrics (BOTH self-metrics like beyla_instrumented_processes AND
+// application metrics like http_server_request_duration_seconds) via a
+// Prometheus scrape endpoint that beyla.ebpf exports as `targets`.
+// You MUST wire a `prometheus.scrape` to that target export — the OTel
+// `output` block on beyla.ebpf only carries traces, not metrics.
 
 logging {
-  level  = "debug"
+  level  = "info"
   format = "logfmt"
 }
 
@@ -33,22 +35,25 @@ beyla.ebpf "default" {
   }
 
   output {
-    metrics = [otelcol.processor.batch.default.input]
-    traces  = [otelcol.processor.batch.default.input]
+    traces = [otelcol.processor.batch.default.input]
   }
+}
+
+// THIS is what gets Beyla's metrics into Prometheus. Without it,
+// dashboards show "No data" even though Beyla is capturing traffic.
+prometheus.scrape "beyla" {
+  targets         = beyla.ebpf.default.targets
+  forward_to      = [prometheus.remote_write.default.receiver]
+  job_name        = "beyla"
+  scrape_interval = "10s"
 }
 
 otelcol.processor.batch "default" {
   timeout = "2s"
 
   output {
-    metrics = [otelcol.exporter.prometheus.default.input]
-    traces  = [otelcol.exporter.otlp.tempo.input]
+    traces = [otelcol.exporter.otlp.tempo.input]
   }
-}
-
-otelcol.exporter.prometheus "default" {
-  forward_to = [prometheus.remote_write.default.receiver]
 }
 
 prometheus.remote_write "default" {
