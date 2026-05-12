@@ -1,0 +1,23 @@
+# Kernel / eBPF / node-level queries.
+
+# ── System CPU on Beyla nodes ────────────────────────────────────────────
+node_system_cpu_pct = avg by (instance)
+  (rate(node_cpu_seconds_total{mode="system"}[5m])) * 100
+
+# ── Context switches per second ──────────────────────────────────────────
+node_context_switches = rate(node_context_switches_total[5m])
+
+# ── Soft IRQ time ────────────────────────────────────────────────────────
+node_softirq_pct = avg by (instance) (rate(node_cpu_seconds_total{mode="softirq"}[5m])) * 100
+
+# ── BPF map memory (requires node_exporter --collector.bpf or custom) ────
+bpf_map_memory_bytes = sum by (instance) (node_bpf_map_memory_bytes)
+
+# ── Beyla program count per node ─────────────────────────────────────────
+beyla_progs_loaded = sum by (instance) (beyla_ebpf_programs_loaded_total)
+
+# ── Verifier / load failures ─────────────────────────────────────────────
+beyla_load_failures = sum(rate(beyla_ebpf_program_load_failures_total[5m]))
+
+# ── Kernel memory pressure ───────────────────────────────────────────────
+node_mem_pressure_pct = (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100

@@ -1,0 +1,48 @@
+# GO/NO-GO scorecard configuration.
+# Each layer has a weight; the overall score is a weighted average.
+# Within a layer, a hard-fail check (any single check at status=fail) caps
+# the layer score regardless of average.
+
+# Total weights MUST sum to 1.0 (the script asserts this).
+
+weights:
+  application:    0.25     # MOST important — app impact is the contract
+  kernel:         0.15
+  telemetry:      0.10
+  k8s:            0.10
+  control-plane:  0.05
+  autoscaling:    0.05
+  network:        0.05
+  pyroscope:      0.10
+  backpressure:   0.05
+  multi-tenancy:  0.02
+  security:       0.05
+  chaos:          0.02
+  time-sync:      0.01
+  federation:     0.00     # informational only
+  rollback:       0.00     # gated separately
+
+# Per-layer hard-fail cap. If ANY check in a layer fails, the layer score
+# is capped at this value. Critical layers can be capped at 0 (any failure
+# = NO-GO).
+hard_fail_cap:
+  application:    0        # ANY app regression = NO-GO
+  kernel:         30       # kernel failures degrade but don't auto-block
+  security:      20
+  pyroscope:      40
+  default:        60
+
+# Decision thresholds for overall score.
+thresholds:
+  go:         80           # ≥ 80 → ✅ GO
+  partial:    65           # 65–79 → ⚠️ GO with remediation
+                           # < 65 → ❌ NO-GO
+
+# Per-environment override (canary is more forgiving).
+environments:
+  canary:
+    thresholds: { go: 70, partial: 55 }
+  staging:
+    thresholds: { go: 80, partial: 65 }
+  prod:
+    thresholds: { go: 90, partial: 80 }

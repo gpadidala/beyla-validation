@@ -1,0 +1,71 @@
+# Optional OpenTelemetry Collector relay sitting between Beyla and the
+# storage backends. Use when you need:
+#   - tail-based sampling
+#   - cross-cluster trace fan-out
+#   - extra processing (attribute scrubbing, PII redaction)
+#
+# Deploy as a separate Deployment/StatefulSet; Beyla then exports to this
+# collector instead of directly to Tempo.
+
+receivers:
+  otlp:
+    protocols:
+      grpc: { endpoint: 0.0.0.0:4317 }
+      http: { endpoint: 0.0.0.0:4318 }
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 15
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+
+  # Tail sampling — keep all errors + slow traces + a small base rate.
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 50000
+    expected_new_traces_per_sec: 1000
+    policies:
+      - { name: errors,   type: status_code, status_code: { status_codes: [ERROR] } }
+      - { name: slow,     type: latency,     latency: { threshold_ms: 1000 } }
+      - { name: baseline, type: probabilistic, probabilistic: { sampling_percentage: 5 } }
+
+  attributes/scrub:
+    actions:
+      - { key: http.user_agent, action: delete }
+      - { key: http.client_ip,  action: hash }
+      - { key: db.statement,    action: hash }
+
+  resource:
+    attributes:
+      - { key: cluster, value: aks-prod-eus, action: upsert }
+
+exporters:
+  otlphttp/tempo:
+    endpoint: http://tempo.monitoring.svc.cluster.local:4318
+    tls: { insecure: true }
+  prometheusremotewrite:
+    endpoint: http://prometheus.monitoring.svc.cluster.local:9090/api/v1/write
+    tls: { insecure: true }
+
+extensions:
+  health_check: { endpoint: 0.0.0.0:13133 }
+  pprof:        { endpoint: 0.0.0.0:1777 }
+
+service:
+  extensions: [health_check, pprof]
+  pipelines:
+    traces:
+      receivers:  [otlp]
+      processors: [memory_limiter, tail_sampling, attributes/scrub, resource, batch]
+      exporters:  [otlphttp/tempo]
+    metrics:
+      receivers:  [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters:  [prometheusremotewrite]
+  telemetry:
+    metrics: { address: 0.0.0.0:8888 }
+    logs:    { level: info }

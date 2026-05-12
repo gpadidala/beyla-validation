@@ -1,0 +1,22 @@
+# Cost-of-observability — the cost Beyla itself imposes.
+# Use these on the "meta-observability" dashboard to keep ops honest.
+
+# ── Beyla CPU cost as % of cluster CPU ───────────────────────────────────
+beyla_cpu_burn_pct = sum(rate(container_cpu_usage_seconds_total{pod=~"beyla-.*"}[5m]))
+                    / sum(machine_cpu_cores) * 100
+
+# ── Beyla memory cost as % of cluster memory ─────────────────────────────
+beyla_mem_burn_pct = sum(container_memory_working_set_bytes{pod=~"beyla-.*"})
+                    / sum(machine_memory_bytes) * 100
+
+# ── Network egress per pod (bytes/sec) ───────────────────────────────────
+beyla_egress_bps = sum by (pod) (rate(container_network_transmit_bytes_total{pod=~"beyla-.*"}[5m]))
+
+# ── Daily Pyroscope storage growth (GB/day projection) ───────────────────
+pyroscope_daily_growth_gb = sum(rate(pyroscope_distributor_received_compressed_bytes_total[1h]))
+                            * 86400 / 1024 / 1024 / 1024
+
+# ── Telemetry value per CPU-second ───────────────────────────────────────
+# Spans exported per CPU-second Beyla consumed — a "useful work" ratio.
+beyla_efficiency = sum(rate(beyla_otel_traces_total[5m]))
+                 / sum(rate(container_cpu_usage_seconds_total{pod=~"beyla-.*"}[5m]))

@@ -1,0 +1,44 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: beyla-application-impact
+  namespace: monitoring
+  labels: { release: kube-prometheus-stack }
+spec:
+  groups:
+    - name: app.impact
+      interval: 30s
+      rules:
+        # Latency regression > 5% vs baseline.
+        # Baseline lives in recording rule app:latency_p99_baseline:5m.
+        - alert: AppLatencyRegression
+          expr: |
+            (
+              histogram_quantile(0.99, sum by (le, service_name)
+                (rate(http_server_request_duration_seconds_bucket[5m])))
+              - on (service_name) app:latency_p99_baseline:5m
+            )
+            / on (service_name) app:latency_p99_baseline:5m > 0.05
+          for: 10m
+          labels: { severity: critical, team: app-owners }
+          annotations:
+            summary: "P99 latency for {{ $labels.service_name }} regressed > 5% post-Beyla"
+            runbook: https://runbooks.example.com/beyla/app-latency-regression
+
+        - alert: AppErrorRateSpike
+          expr: |
+            sum by (service_name) (rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[5m]))
+              / sum by (service_name) (rate(http_server_request_duration_seconds_count[5m])) > 0.01
+          for: 5m
+          labels: { severity: critical, team: app-owners }
+          annotations:
+            summary: "5xx rate for {{ $labels.service_name }} > 1%"
+
+        - alert: AppThroughputDrop
+          expr: |
+            sum by (service_name) (rate(http_server_request_duration_seconds_count[5m]))
+              < 0.95 * (app:rps_baseline:5m)
+          for: 10m
+          labels: { severity: warning, team: app-owners }
+          annotations:
+            summary: "Throughput for {{ $labels.service_name }} dropped > 5%"

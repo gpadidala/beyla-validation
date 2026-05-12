@@ -1,0 +1,22 @@
+{
+  "name": "beyla-validation-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Playwright end-to-end validation: brings up Grafana, exercises every dashboard, and asserts data flowed end-to-end via Alloy+Beyla.",
+  "scripts": {
+    "test":         "playwright test",
+    "test:headed":  "playwright test --headed",
+    "test:debug":   "PWDEBUG=1 playwright test",
+    "test:ui":      "playwright test --ui",
+    "test:report":  "playwright show-report",
+    "test:install": "playwright install --with-deps chromium",
+    "test:dashboards":  "playwright test tests/03-dashboards-render.spec.ts",
+    "test:data-flow":   "playwright test tests/04-data-flow.spec.ts",
+    "test:alloy":       "playwright test tests/05-alloy-pipeline.spec.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.49.1",
+    "@types/node": "22.10.2",
+    "typescript": "5.7.2"
+  }
+}

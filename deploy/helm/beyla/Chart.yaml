@@ -1,0 +1,16 @@
+apiVersion: v2
+name: beyla
+description: Grafana Beyla DaemonSet with validation guardrails for AKS
+type: application
+version: 0.1.0
+appVersion: "1.9.5"
+kubeVersion: ">=1.27.0-0"
+keywords: [beyla, ebpf, observability, tracing, profiling]
+maintainers:
+  - name: AIOps Platform Engineering
+    email: gopalpadidala@gmail.com
+home: https://github.com/grafana/beyla
+sources:
+  - https://github.com/grafana/beyla
+annotations:
+  category: Monitoring

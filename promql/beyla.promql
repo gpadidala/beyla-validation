@@ -1,0 +1,24 @@
+# Beyla self-metrics.
+
+# ── Build / version info ─────────────────────────────────────────────────
+beyla_pods_by_version = count by (version) (beyla_build_info)
+
+# ── Trace export ─────────────────────────────────────────────────────────
+beyla_traces_exported = sum(rate(beyla_otel_traces_total[5m]))
+beyla_traces_dropped  = sum(rate(beyla_otel_traces_dropped_total[5m]))
+beyla_traces_failed   = sum(rate(beyla_otel_traces_failed_total[5m]))
+
+# ── Export queue saturation (0-1) ────────────────────────────────────────
+beyla_queue_saturation = max(beyla_export_queue_size / beyla_export_queue_capacity)
+
+# ── Beyla CPU & memory ───────────────────────────────────────────────────
+beyla_cpu_usage_cores = sum by (pod) (rate(container_cpu_usage_seconds_total{pod=~"beyla-.*"}[5m]))
+beyla_mem_bytes       = sum by (pod) (container_memory_working_set_bytes{pod=~"beyla-.*"})
+
+# ── Beyla CPU throttle % ─────────────────────────────────────────────────
+beyla_cpu_throttle_pct = sum(rate(container_cpu_cfs_throttled_periods_total{pod=~"beyla-.*"}[5m]))
+                       / sum(rate(container_cpu_cfs_periods_total{pod=~"beyla-.*"}[5m])) * 100
+
+# ── DaemonSet coverage ───────────────────────────────────────────────────
+beyla_ds_coverage = kube_daemonset_status_number_ready{daemonset="beyla"} /
+                    kube_daemonset_status_desired_number_scheduled{daemonset="beyla"}

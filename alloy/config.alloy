@@ -1,0 +1,259 @@
+// Alloy configuration: Beyla embedded as a native Alloy component.
+//
+// Data flow:
+//   beyla.ebpf      ─┐
+//                    ├─► otelcol.processor.batch ─► otelcol.processor.k8sattributes
+//   pyroscope.ebpf  ─┘                                       │
+//                                                            ├─► otelcol.exporter.prometheus ─► prometheus.remote_write
+//                                                            ├─► otelcol.exporter.otlp        ─► Tempo
+//                                                            └─► pyroscope.write              ─► Pyroscope
+//
+// Beyla self-metrics, Alloy health, and live debug UI are exposed on :12345.
+// Override endpoints via env vars rendered by the Helm chart (values.yaml).
+
+logging {
+  level  = sys.env("ALLOY_LOG_LEVEL")
+  format = "json"
+}
+
+livedebugging {
+  enabled = true
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Discovery: find pods on this node that opted in via the
+// `beyla.grafana.com/instrument=true` label.
+// ───────────────────────────────────────────────────────────────────────────
+
+discovery.kubernetes "pods" {
+  role = "pod"
+  selectors {
+    role  = "pod"
+    field = "spec.nodeName=" + sys.env("HOSTNAME")
+  }
+}
+
+discovery.relabel "instrumented_pods" {
+  targets = discovery.kubernetes.pods.targets
+
+  // Only pods labelled for instrumentation.
+  rule {
+    source_labels = ["__meta_kubernetes_pod_label_beyla_grafana_com_instrument"]
+    regex         = "true"
+    action        = "keep"
+  }
+
+  // Skip pods in observability / system namespaces.
+  rule {
+    source_labels = ["__meta_kubernetes_namespace"]
+    regex         = "kube-system|monitoring|beyla-system|alloy"
+    action        = "drop"
+  }
+
+  // Normalize labels for downstream components.
+  rule {
+    source_labels = ["__meta_kubernetes_namespace"]
+    target_label  = "namespace"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+    target_label  = "service_name"
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Beyla — auto-instrument applications via eBPF.
+// Emits RED metrics + distributed traces.
+// ───────────────────────────────────────────────────────────────────────────
+
+beyla.ebpf "default" {
+  open_port = "8080"
+
+  attributes {
+    kubernetes {
+      enable       = true
+      cluster_name = sys.env("CLUSTER_NAME")
+    }
+    select {
+      // Keep only the labels we want; drop the rest to control cardinality.
+      include = [
+        "http.route",
+        "http.response.status_code",
+        "service.name",
+        "k8s.namespace.name",
+        "k8s.pod.name",
+      ]
+      exclude = [
+        "http.user_agent",
+        "http.client_ip",
+        "k8s.pod.uid",
+      ]
+    }
+  }
+
+  discovery {
+    services {
+      kubernetes_namespace = sys.env("TARGET_NAMESPACES")
+      pod_label_selector   = "beyla.grafana.com/instrument=true"
+    }
+    exclude_services {
+      kubernetes_namespace = "kube-system,monitoring,beyla-system,alloy"
+    }
+  }
+
+  routes {
+    unmatched = "heuristic"
+    patterns = [
+      "/api/*/products",
+      "/api/*/users/:id",
+      "/api/*/orders/:id",
+    ]
+    ignored_patterns = ["/metrics", "/debug/*", "/healthz", "/readyz"]
+  }
+
+  metrics {
+    features = ["application", "application_span", "application_service_graph", "network"]
+  }
+
+  // Backpressure: degrade gracefully under load.
+  rate_limit {
+    cpu_high_watermark    = 70
+    memory_high_watermark = 75
+    drop_traces_first     = true
+  }
+
+  output {
+    // Beyla emits both metrics and traces as OTel; fan into one batch processor.
+    metrics = [otelcol.processor.batch.default.input]
+    traces  = [otelcol.processor.batch.default.input]
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Pyroscope eBPF — continuous CPU profiling for the same pods.
+// Independent of Beyla; profiles flow on a separate pipeline.
+// ───────────────────────────────────────────────────────────────────────────
+
+pyroscope.ebpf "default" {
+  forward_to       = [pyroscope.write.default.receiver]
+  targets          = discovery.relabel.instrumented_pods.output
+  collect_interval = "15s"
+  sample_rate      = 19            // prime: avoids harmonic aliasing
+  pid_cache_size   = 64
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Processors — batch + k8s metadata enrichment + tail sampling.
+// ───────────────────────────────────────────────────────────────────────────
+
+otelcol.processor.batch "default" {
+  send_batch_size     = 1024
+  send_batch_max_size = 2048
+  timeout             = "5s"
+
+  output {
+    metrics = [otelcol.processor.k8sattributes.default.input]
+    traces  = [otelcol.processor.k8sattributes.default.input]
+  }
+}
+
+otelcol.processor.k8sattributes "default" {
+  extract {
+    metadata = [
+      "k8s.namespace.name",
+      "k8s.pod.name",
+      "k8s.pod.uid",
+      "k8s.deployment.name",
+      "k8s.node.name",
+    ]
+  }
+  pod_association {
+    source {
+      from = "resource_attribute"
+      name = "k8s.pod.ip"
+    }
+  }
+  output {
+    metrics = [otelcol.processor.tail_sampling.default.input]
+    traces  = [otelcol.processor.tail_sampling.default.input]
+  }
+}
+
+// Tail sampling: keep every error + every slow trace + a 5% baseline.
+otelcol.processor.tail_sampling "default" {
+  decision_wait        = "10s"
+  num_traces           = 50000
+
+  policy {
+    name = "errors"
+    type = "status_code"
+    status_code { status_codes = ["ERROR"] }
+  }
+  policy {
+    name = "slow"
+    type = "latency"
+    latency { threshold_ms = 1000 }
+  }
+  policy {
+    name = "baseline"
+    type = "probabilistic"
+    probabilistic { sampling_percentage = 5 }
+  }
+
+  output {
+    metrics = [otelcol.exporter.prometheus.default.input]
+    traces  = [otelcol.exporter.otlp.tempo.input]
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Exporters: Prometheus, Tempo, Pyroscope, Loki.
+// ───────────────────────────────────────────────────────────────────────────
+
+otelcol.exporter.prometheus "default" {
+  forward_to = [prometheus.remote_write.default.receiver]
+}
+
+prometheus.remote_write "default" {
+  endpoint {
+    url = sys.env("PROMETHEUS_REMOTE_WRITE_URL")
+    queue_config {
+      max_samples_per_send = 2000
+      capacity             = 20000
+    }
+  }
+  external_labels = {
+    cluster = sys.env("CLUSTER_NAME"),
+    stack   = sys.env("STACK"),
+  }
+}
+
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = sys.env("TEMPO_OTLP_ENDPOINT")
+    tls {
+      insecure = true
+    }
+  }
+}
+
+pyroscope.write "default" {
+  endpoint {
+    url = sys.env("PYROSCOPE_ENDPOINT")
+  }
+  external_labels = {
+    cluster = sys.env("CLUSTER_NAME"),
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Alloy self-metrics + scrape of Beyla's internal metrics endpoint.
+// ───────────────────────────────────────────────────────────────────────────
+
+prometheus.exporter.self "alloy" { }
+
+prometheus.scrape "alloy_self" {
+  targets    = prometheus.exporter.self.alloy.targets
+  forward_to = [prometheus.remote_write.default.receiver]
+  job_name   = "alloy"
+}

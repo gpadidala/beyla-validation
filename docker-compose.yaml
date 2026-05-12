@@ -1,0 +1,88 @@
+# Local dev stack: Alloy (with Beyla embedded) → LGTM.
+# Mirrors the in-cluster data flow so dashboards, alerts, and Playwright
+# tests can be developed against the same shape end-to-end.
+#
+# Usage:
+#   make dev-up      # bring up the full stack
+#   make e2e         # run Playwright tests against this stack
+#   make dev-down    # tear down
+#
+# Beyla needs privileged + host PID. We use Alloy as the host for Beyla
+# (see examples/alloy-config-local.alloy) — single agent, same code path
+# as production.
+
+services:
+  alloy:
+    image: grafana/alloy:v1.4.2
+    privileged: true
+    pid: host
+    network_mode: host
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --stability.level=experimental         # beyla.ebpf requires this
+    volumes:
+      - ./examples/alloy-config-local.alloy:/etc/alloy/config.alloy:ro
+      - /sys/kernel/debug:/sys/kernel/debug:ro
+      - /sys/fs/bpf:/sys/fs/bpf
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+    depends_on: [prometheus, tempo, pyroscope]
+    ports: ["12345:12345"]
+
+  # ── LGTM stack ───────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.enable-remote-write-receiver
+      - --enable-feature=native-histograms,exemplar-storage
+    volumes:
+      - ./examples/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports: ["9090:9090"]
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./examples/tempo.yaml:/etc/tempo/tempo.yaml:ro
+    ports: ["3200:3200", "4317:4317", "4318:4318"]
+
+  loki:
+    image: grafana/loki:3.2.1
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - ./examples/loki.yaml:/etc/loki/loki.yaml:ro
+    ports: ["3100:3100"]
+
+  pyroscope:
+    image: grafana/pyroscope:1.9.2
+    command: ["server"]
+    volumes:
+      - ./examples/pyroscope.yaml:/etc/pyroscope/server.yaml:ro
+    ports: ["4040:4040"]
+
+  grafana:
+    image: grafana/grafana:12.4.0
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_FEATURE_TOGGLES_ENABLE=traceqlEditor,flameGraph,exemplars,tempoApmTable
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./examples/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/ds.yaml:ro
+      - ./dashboards:/var/lib/grafana/dashboards:ro
+      - ./examples/grafana-dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
+    ports: ["3000:3000"]
+    depends_on: [prometheus, tempo, loki, pyroscope]
+
+  # ── Demo app to give Beyla something to instrument ───────────────────
+  # OpenTelemetry's HotROD-style demo would also work; this is the
+  # smallest possible probe target.
+  demoapp:
+    image: ghcr.io/grafana/beyla-demo:latest
+    pid: host
+    ports: ["8081:8080"]
+    environment:
+      - BEYLA_DEMO_PORT=8080

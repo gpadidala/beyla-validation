@@ -1,0 +1,18 @@
+# AKS-prod specific overrides. Layered on top of values-prod.yaml.
+# Apply with: -f values.yaml -f values-prod.yaml -f values-aks-prod.yaml
+
+global:
+  clusterName: aks-prod-eus
+  region: eastus
+
+daemonset:
+  nodeSelector:
+    kubernetes.azure.com/agentpool: nodepool1
+    kubernetes.io/os: linux
+  tolerations:
+    - key: CriticalAddonsOnly
+      operator: Exists
+    - key: kubernetes.azure.com/scalesetpriority
+      operator: Equal
+      value: spot
+      effect: NoSchedule

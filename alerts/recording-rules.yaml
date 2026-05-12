@@ -1,0 +1,47 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: beyla-recording-rules
+  namespace: monitoring
+  labels: { release: kube-prometheus-stack }
+spec:
+  groups:
+    - name: beyla.baselines
+      interval: 1m
+      rules:
+        # ── App baselines ─────────────────────────────────────────────
+        # Captured BEFORE Beyla rollout — freeze with `prometheus-snapshot`
+        # then promote to a long-retention rule. This live rule produces a
+        # rolling 7d trimmed average used for ongoing drift detection.
+        - record: app:latency_p99_baseline:5m
+          expr: |
+            quantile_over_time(0.5,
+              histogram_quantile(0.99, sum by (le, service_name)
+                (rate(http_server_request_duration_seconds_bucket[5m])))[7d:5m])
+
+        - record: app:latency_p95_baseline:5m
+          expr: |
+            quantile_over_time(0.5,
+              histogram_quantile(0.95, sum by (le, service_name)
+                (rate(http_server_request_duration_seconds_bucket[5m])))[7d:5m])
+
+        - record: app:rps_baseline:5m
+          expr: |
+            quantile_over_time(0.5,
+              sum by (service_name) (rate(http_server_request_duration_seconds_count[5m]))[7d:5m])
+
+        - record: cluster:pkt_rate_baseline:5m
+          expr: |
+            quantile_over_time(0.5,
+              sum(rate(node_network_receive_packets_total{device!~"lo|cali.*|veth.*"}[5m]))[7d:5m])
+
+        # ── Beyla efficiency ─────────────────────────────────────────
+        - record: beyla:cpu_burn_pct:5m
+          expr: |
+            sum(rate(container_cpu_usage_seconds_total{pod=~"beyla-.*"}[5m]))
+              / sum(machine_cpu_cores) * 100
+
+        - record: beyla:mem_burn_pct:5m
+          expr: |
+            sum(container_memory_working_set_bytes{pod=~"beyla-.*"})
+              / sum(machine_memory_bytes) * 100

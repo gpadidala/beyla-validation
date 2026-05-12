@@ -1,0 +1,42 @@
+{
+  "uid": "beyla-pyroscope",
+  "title": "Beyla • Pyroscope Pipeline",
+  "tags": ["beyla", "pyroscope", "profiling"],
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": { "list": [{ "name": "datasource", "type": "datasource", "query": "prometheus" }] },
+  "panels": [
+    { "id": 1, "type": "stat", "title": "Ingest (MB/s)",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "targets": [{ "expr": "sum(rate(pyroscope_distributor_received_compressed_bytes_total[5m])) / 1024 / 1024", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "decmbytes" } } },
+    { "id": 2, "type": "stat", "title": "Active series",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "targets": [{ "expr": "sum(pyroscope_ingester_memory_series)", "refId": "A" }] },
+    { "id": 3, "type": "stat", "title": "Write failures /s",
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "expr": "sum(rate(pyroscope_distributor_ingester_appends_failures_total[5m]))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green" }, { "color": "red", "value": 0.1 }] } } } },
+    { "id": 4, "type": "stat", "title": "Disk used %",
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "targets": [{ "expr": "max(kubelet_volume_stats_used_bytes{persistentvolumeclaim=~\"pyroscope.*\"} / kubelet_volume_stats_capacity_bytes{persistentvolumeclaim=~\"pyroscope.*\"}) * 100", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "thresholds": { "steps": [{ "color": "green" }, { "color": "yellow", "value": 70 }, { "color": "red", "value": 85 }] } } } },
+
+    { "id": 10, "type": "timeseries", "title": "Ingest rate", "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
+      "targets": [{ "expr": "sum by (instance) (rate(pyroscope_distributor_received_compressed_bytes_total[5m]))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "Bps" } } },
+
+    { "id": 11, "type": "timeseries", "title": "Top 10 tenants by series", "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
+      "targets": [{ "expr": "topk(10, sum by (tenant) (pyroscope_ingester_memory_series))", "refId": "A", "legendFormat": "{{tenant}}" }] },
+
+    { "id": 12, "type": "timeseries", "title": "Ingester memory / limit", "gridPos": { "h": 9, "w": 12, "x": 0, "y": 14 },
+      "targets": [{ "expr": "container_memory_working_set_bytes{pod=~\"pyroscope-ingester.*\"} / container_spec_memory_limit_bytes{pod=~\"pyroscope-ingester.*\"}", "refId": "A", "legendFormat": "{{pod}}" }],
+      "fieldConfig": { "defaults": { "unit": "percentunit" } } },
+
+    { "id": 13, "type": "timeseries", "title": "Query P99", "gridPos": { "h": 9, "w": 12, "x": 12, "y": 14 },
+      "targets": [{ "expr": "histogram_quantile(0.99, sum by (le) (rate(pyroscope_query_engine_request_duration_seconds_bucket[5m])))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "s" } } }
+  ]
+}

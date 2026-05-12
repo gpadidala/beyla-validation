@@ -1,0 +1,38 @@
+{
+  "uid": "beyla-kernel",
+  "title": "Beyla • Kernel & eBPF",
+  "tags": ["beyla", "kernel", "ebpf"],
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "templating": { "list": [{ "name": "datasource", "type": "datasource", "query": "prometheus" }, { "name": "node", "type": "query", "datasource": "${datasource}", "query": "label_values(node_cpu_seconds_total, instance)", "refresh": 2, "includeAll": true, "multi": true }] },
+  "panels": [
+    { "id": 1, "type": "timeseries", "title": "System CPU % per node",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+      "targets": [{ "expr": "avg by (instance) (rate(node_cpu_seconds_total{mode=\"system\",instance=~\"$node\"}[5m])) * 100", "refId": "A", "legendFormat": "{{instance}}" }],
+      "fieldConfig": { "defaults": { "unit": "percent" } } },
+
+    { "id": 2, "type": "timeseries", "title": "Context switches / sec",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+      "targets": [{ "expr": "rate(node_context_switches_total{instance=~\"$node\"}[5m])", "refId": "A", "legendFormat": "{{instance}}" }] },
+
+    { "id": 3, "type": "timeseries", "title": "Soft IRQ %",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 9 },
+      "targets": [{ "expr": "avg by (instance) (rate(node_cpu_seconds_total{mode=\"softirq\",instance=~\"$node\"}[5m])) * 100", "refId": "A", "legendFormat": "{{instance}}" }],
+      "fieldConfig": { "defaults": { "unit": "percent" } } },
+
+    { "id": 4, "type": "timeseries", "title": "BPF map memory (per node)",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 9 },
+      "targets": [{ "expr": "sum by (instance) (node_bpf_map_memory_bytes{instance=~\"$node\"})", "refId": "A", "legendFormat": "{{instance}}" }],
+      "fieldConfig": { "defaults": { "unit": "bytes" } } },
+
+    { "id": 5, "type": "stat", "title": "Beyla programs loaded (cluster-wide)",
+      "gridPos": { "h": 5, "w": 12, "x": 0, "y": 18 },
+      "targets": [{ "expr": "sum(beyla_ebpf_programs_loaded_total)", "refId": "A" }] },
+
+    { "id": 6, "type": "stat", "title": "Load failures (1h)",
+      "gridPos": { "h": 5, "w": 12, "x": 12, "y": 18 },
+      "targets": [{ "expr": "sum(increase(beyla_ebpf_program_load_failures_total[1h]))", "refId": "A" }] }
+  ]
+}

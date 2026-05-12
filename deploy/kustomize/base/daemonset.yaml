@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: beyla
+spec:
+  selector: { matchLabels: { app.kubernetes.io/name: beyla } }
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: "10%" }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: beyla }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    spec:
+      serviceAccountName: beyla
+      priorityClassName: beyla-critical
+      hostPID: true
+      terminationGracePeriodSeconds: 30
+      nodeSelector: { kubernetes.io/os: linux }
+      tolerations: [{ operator: Exists }]
+      containers:
+        - name: beyla
+          image: grafana/beyla:1.9.5
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 0
+            capabilities:
+              add: [CAP_SYS_ADMIN, CAP_BPF, CAP_PERFMON, CAP_NET_RAW]
+              drop: [ALL]
+            seccompProfile: { type: RuntimeDefault }
+          env:
+            - { name: BEYLA_CONFIG_PATH, value: /etc/beyla/config.yaml }
+            - { name: NODE_NAME, valueFrom: { fieldRef: { fieldPath: spec.nodeName } } }
+            - { name: GOMEMLIMIT, value: 700Mi }
+          ports: [{ name: metrics, containerPort: 8080 }]
+          resources:
+            requests: { cpu: 100m, memory: 200Mi }
+            limits:   { cpu: 500m, memory: 700Mi }
+          livenessProbe:  { httpGet: { path: /healthz, port: metrics }, initialDelaySeconds: 30, periodSeconds: 30 }
+          readinessProbe: { httpGet: { path: /readyz,  port: metrics }, periodSeconds: 10 }
+          volumeMounts:
+            - { name: config,  mountPath: /etc/beyla,        readOnly: true }
+            - { name: bpf-fs,  mountPath: /sys/fs/bpf,        mountPropagation: Bidirectional }
+            - { name: debugfs, mountPath: /sys/kernel/debug,  readOnly: true }
+            - { name: cgroup,  mountPath: /sys/fs/cgroup,     readOnly: true }
+      volumes:
+        - { name: config,  configMap: { name: beyla-config } }
+        - { name: bpf-fs,  hostPath:  { path: /sys/fs/bpf,        type: DirectoryOrCreate } }
+        - { name: debugfs, hostPath:  { path: /sys/kernel/debug,  type: Directory } }
+        - { name: cgroup,  hostPath:  { path: /sys/fs/cgroup,     type: Directory } }

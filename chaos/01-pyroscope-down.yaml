@@ -1,0 +1,17 @@
+# Pyroscope unreachable: kill distributor pods.
+# Expected: Beyla keeps shipping traces+metrics, drops profiles cleanly,
+# resumes on recovery. Buffer should drain, not OOM.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: pyroscope-down
+  namespace: beyla-system
+spec:
+  action: pod-kill
+  mode: all
+  duration: 5m
+  selector:
+    namespaces: [monitoring]
+    labelSelectors:
+      app.kubernetes.io/component: distributor
+      app.kubernetes.io/name: pyroscope

@@ -1,0 +1,58 @@
+# Cost model inputs. Per-environment overrides applied by cost-model.py.
+# Numbers are Azure East US list prices (USD), no reservations.
+
+defaults:
+  cloud: azure
+  region: eastus
+  cpu_price_per_core_hour: 0.024     # Standard_D-series
+  mem_price_per_gib_hour: 0.0034
+  egress_price_per_gb: 0.087         # Azure → internet; intra-region near 0
+  managed_disk_price_per_gb_month: 0.05  # P10 Premium SSD-equivalent
+
+  beyla:
+    cpu_request_per_node_cores: 0.1
+    cpu_limit_per_node_cores: 0.5
+    mem_request_per_node_gib: 0.2
+    mem_limit_per_node_gib: 0.7
+    avg_cpu_utilization_pct: 35
+
+  telemetry:
+    avg_span_bytes: 800
+    avg_metric_series_bytes: 1.4     # in storage after compression
+    avg_profile_bytes_per_sample: 320
+    trace_sampling_ratio: 0.05
+    profile_sampling_hz: 19
+    request_rate_per_service_rps: 200
+
+  pyroscope:
+    replication_factor: 3
+    storage_retention_days: 14
+    ingester_cpu_cores_per_1m_series: 0.5
+    ingester_mem_gib_per_1m_series: 4
+
+environments:
+  canary:
+    nodes: 5
+    services: 1
+    request_rate_per_service_rps: 100
+    trace_sampling_ratio: 0.01
+    profile_sampling_hz: 7
+
+  staging:
+    nodes: 60
+    services: 8
+    request_rate_per_service_rps: 500
+    trace_sampling_ratio: 0.05
+
+  prod:
+    nodes: 300
+    services: 25
+    request_rate_per_service_rps: 2000
+    trace_sampling_ratio: 0.03
+    storage_retention_days: 30
+
+  prod-multi-cluster:
+    nodes: 1500           # 5 clusters × 300 nodes
+    services: 125
+    request_rate_per_service_rps: 2000
+    trace_sampling_ratio: 0.03

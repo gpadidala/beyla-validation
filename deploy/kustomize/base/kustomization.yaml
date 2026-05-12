@@ -1,0 +1,18 @@
+# Kustomize base. Mirrors the Helm chart for users who prefer kustomize.
+# Maintainer convention: edit Helm first, then sync changes here.
+# Run `make render ENV=prod > base/_helm-rendered.yaml` and diff to confirm.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: beyla-system
+commonLabels:
+  app.kubernetes.io/name: beyla
+  app.kubernetes.io/component: ebpf-instrumentation
+resources:
+  - namespace.yaml
+  - daemonset.yaml
+  - configmap.yaml
+  - serviceaccount.yaml
+  - rbac.yaml
+  - service.yaml
+  - networkpolicy.yaml
+  - priorityclass.yaml

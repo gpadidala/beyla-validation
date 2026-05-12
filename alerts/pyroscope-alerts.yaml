@@ -1,0 +1,40 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: beyla-pyroscope
+  namespace: monitoring
+  labels: { release: kube-prometheus-stack }
+spec:
+  groups:
+    - name: pyroscope.health
+      interval: 30s
+      rules:
+        - alert: PyroscopeDiskHigh
+          expr: max(kubelet_volume_stats_used_bytes{persistentvolumeclaim=~"pyroscope.*"}
+                    / kubelet_volume_stats_capacity_bytes{persistentvolumeclaim=~"pyroscope.*"}) > 0.80
+          for: 10m
+          labels: { severity: warning, team: platform }
+          annotations:
+            summary: "Pyroscope disk > 80% full"
+
+        - alert: PyroscopeWriteFailures
+          expr: sum(rate(pyroscope_distributor_ingester_appends_failures_total[5m])) > 0.1
+          for: 5m
+          labels: { severity: critical, team: platform }
+          annotations:
+            summary: "Pyroscope write failures > 0.1/sec"
+
+        - alert: PyroscopeIngesterMemoryHigh
+          expr: max(container_memory_working_set_bytes{pod=~"pyroscope-ingester.*"}
+                    / container_spec_memory_limit_bytes{pod=~"pyroscope-ingester.*"}) > 0.85
+          for: 10m
+          labels: { severity: warning, team: platform }
+          annotations:
+            summary: "Pyroscope ingester memory > 85% of limit"
+
+        - alert: PyroscopeQuerySlow
+          expr: histogram_quantile(0.99, sum by (le) (rate(pyroscope_query_engine_request_duration_seconds_bucket[5m]))) > 5
+          for: 10m
+          labels: { severity: warning, team: platform }
+          annotations:
+            summary: "Pyroscope query P99 > 5s"

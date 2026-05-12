@@ -1,0 +1,20 @@
+# Production overrides for Alloy.
+alloy:
+  extraEnv:
+    - name: STACK
+      value: prod
+    - name: ALLOY_LOG_LEVEL
+      value: warn
+  resources:
+    requests: { cpu: 250m, memory: 500Mi }
+    limits:   { cpu: 2,    memory: 2Gi }
+
+image:
+  # Digest-pin in prod. Update via release workflow.
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+controller:
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: "10%"

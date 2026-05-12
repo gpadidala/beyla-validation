@@ -1,0 +1,37 @@
+# High-traffic profile: aggressive batching, tighter sampling, larger buffers.
+# Use for production clusters with > 5k RPS / service.
+# Pair with Pyroscope cluster sized per cost/cost-model.py output.
+
+log_level: warn                  # noisier nodes — keep logs tight
+open_port: 8080
+
+discovery:
+  services:
+    - k8s_namespace: [demo, checkout, payments, shipping, search, cart]
+
+otel_traces_export:
+  sampler:
+    name: parentbased_traceidratio
+    arg: 0.02                   # 2% — tail sampling at Tempo decides keep
+  batch:
+    timeout: 2s                 # flush sooner
+    max_export_batch_size: 2048
+
+profiles:
+  sampling_rate_hz: 49          # prime; balances detail vs storage
+
+rate_limit:
+  cpu_high_watermark: 65
+  memory_high_watermark: 70
+  drop_traces_first: true
+
+metrics:
+  max_series_per_service: 100000
+  max_labels_per_series: 12
+
+# Network feature is more expensive — only enable when needed.
+network:
+  enable: true
+  source: socket_filter         # cheaper than tc on hot nodes
+  cidrs:
+    - 10.0.0.0/8                # cluster CIDR (Azure default)

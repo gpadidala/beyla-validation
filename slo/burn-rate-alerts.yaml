@@ -1,0 +1,43 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: beyla-slo-burn-rate
+  namespace: monitoring
+  labels: { release: kube-prometheus-stack }
+spec:
+  groups:
+    - name: slo.burn
+      interval: 30s
+      rules:
+        # Multi-window, multi-burn-rate (MWMBR) for trace-ingestion-availability (target 99.9% → budget 0.001)
+        - alert: TraceIngestionFastBurn
+          expr: |
+            (
+              (1 - sum(rate(beyla_otel_traces_failed_total[5m])) / sum(rate(beyla_otel_traces_total[5m])))
+              < 1 - 14.4 * 0.001
+            )
+            and
+            (
+              (1 - sum(rate(beyla_otel_traces_failed_total[1h])) / sum(rate(beyla_otel_traces_total[1h])))
+              < 1 - 14.4 * 0.001
+            )
+          for: 2m
+          labels: { severity: critical, slo: trace-ingestion-availability, burn: fast }
+          annotations:
+            summary: "Trace ingestion burning 14.4× budget — exhaustion < 2 days"
+
+        - alert: TraceIngestionSlowBurn
+          expr: |
+            (
+              (1 - sum(rate(beyla_otel_traces_failed_total[1h])) / sum(rate(beyla_otel_traces_total[1h])))
+              < 1 - 6 * 0.001
+            )
+            and
+            (
+              (1 - sum(rate(beyla_otel_traces_failed_total[6h])) / sum(rate(beyla_otel_traces_total[6h])))
+              < 1 - 6 * 0.001
+            )
+          for: 15m
+          labels: { severity: warning, slo: trace-ingestion-availability, burn: slow }
+          annotations:
+            summary: "Trace ingestion slow burn — exhaustion < 5 days"

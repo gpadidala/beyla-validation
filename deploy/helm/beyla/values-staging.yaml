@@ -1,0 +1,8 @@
+# Staging: full cluster, medium sampling. Mirrors prod load profile.
+global:
+  stack: staging
+  targetNamespaces: [demo, checkout, payments, shipping]
+beyla:
+  profile: medium
+  traces:
+    samplingRatio: 0.05

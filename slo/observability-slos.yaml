@@ -1,0 +1,65 @@
+# SLOs for the observability stack itself ("observability of observability").
+# Format: Sloth (https://sloth.dev) — generates recording + alerting rules.
+# Apply with: sloth generate -i observability-slos.yaml -o ../alerts/slo-generated.yaml
+version: prometheus/v1
+service: beyla-observability
+labels:
+  team: platform
+  owner: aiops
+slos:
+  # ── Trace ingestion success ─────────────────────────────────────────
+  - name: trace-ingestion-availability
+    objective: 99.9
+    description: "≥ 99.9% of spans submitted by Beyla are accepted by Tempo"
+    sli:
+      events:
+        error_query: sum(rate(beyla_otel_traces_failed_total[{{.window}}]))
+        total_query: sum(rate(beyla_otel_traces_total[{{.window}}]))
+    alerting:
+      name: TraceIngestionAvailabilityLow
+      page_alert:   { labels: { severity: critical } }
+      ticket_alert: { labels: { severity: warning } }
+
+  # ── Profile freshness ───────────────────────────────────────────────
+  - name: profile-freshness
+    objective: 99.0
+    description: "≥ 99% of services have a fresh CPU profile within 5 minutes"
+    sli:
+      raw:
+        error_ratio_query: |
+          (count(group by (service_name) (process_cpu:cpu:nanoseconds:cpu:nanoseconds{service_name!=""}) unless on (service_name)
+            (group by (service_name) (count_over_time(process_cpu:cpu:nanoseconds:cpu:nanoseconds[5m]))))
+          /
+          count(group by (service_name) (beyla_build_info)))
+    alerting:
+      name: ProfileFreshnessLow
+      page_alert:   { labels: { severity: critical } }
+      ticket_alert: { labels: { severity: warning } }
+
+  # ── Query latency for Grafana panels ────────────────────────────────
+  - name: query-latency
+    objective: 99.0
+    description: "≥ 99% of Tempo + Pyroscope queries return in < 3s"
+    sli:
+      events:
+        error_query: |
+          sum(rate(tempo_request_duration_seconds_bucket{le="+Inf"}[{{.window}}])) -
+          sum(rate(tempo_request_duration_seconds_bucket{le="3"}[{{.window}}]))
+        total_query: sum(rate(tempo_request_duration_seconds_count[{{.window}}]))
+    alerting:
+      name: ObservabilityQuerySlow
+      page_alert:   { labels: { severity: warning } }
+      ticket_alert: { labels: { severity: info } }
+
+  # ── Pyroscope write success ─────────────────────────────────────────
+  - name: profile-write-success
+    objective: 99.95
+    description: "≥ 99.95% of profile writes succeed at the Pyroscope distributor"
+    sli:
+      events:
+        error_query: sum(rate(pyroscope_distributor_ingester_appends_failures_total[{{.window}}]))
+        total_query: sum(rate(pyroscope_distributor_ingester_appends_total[{{.window}}]))
+    alerting:
+      name: ProfileWriteFailures
+      page_alert:   { labels: { severity: critical } }
+      ticket_alert: { labels: { severity: warning } }

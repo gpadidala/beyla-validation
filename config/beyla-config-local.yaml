@@ -1,0 +1,25 @@
+# Local dev config used by docker-compose.yaml.
+# Talks to the LGTM stack on the same host network.
+
+log_level: debug
+print_traces: false             # set true to dump traces to stdout
+open_port: 8080
+
+discovery:
+  services:
+    - exe_path: ".*"
+
+otel_traces_export:
+  endpoint: http://localhost:4318
+  protocol: http/protobuf
+  sampler:
+    name: always_on             # local dev — capture everything
+
+profiles:
+  enable: true
+  endpoint: http://localhost:4040
+  sampling_rate_hz: 19
+
+prometheus_export:
+  port: 8080
+  path: /metrics

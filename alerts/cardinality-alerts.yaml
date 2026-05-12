@@ -1,0 +1,32 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: beyla-cardinality
+  namespace: monitoring
+  labels: { release: kube-prometheus-stack }
+spec:
+  groups:
+    - name: beyla.cardinality
+      interval: 60s
+      rules:
+        # Prometheus-side cardinality budget.
+        - alert: PromHighChurn
+          expr: sum(rate(prometheus_tsdb_head_series_created_total[5m])) > 5000
+          for: 10m
+          labels: { severity: warning, team: platform }
+          annotations:
+            summary: "Prometheus series creation > 5k/s (label churn)"
+
+        - alert: ServiceCardinalityBudgetExceeded
+          expr: count by (service_name) ({__name__=~".+", service_name!=""}) > 50000
+          for: 15m
+          labels: { severity: warning, team: platform }
+          annotations:
+            summary: "Service {{ $labels.service_name }} has > 50k series — investigate label explosion"
+
+        - alert: PyroscopeCardinalityBudget
+          expr: sum(pyroscope_ingester_memory_series) > 5e6
+          for: 15m
+          labels: { severity: warning, team: platform }
+          annotations:
+            summary: "Pyroscope > 5M active series — review label drop rules"

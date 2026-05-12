@@ -1,0 +1,143 @@
+# Default values for beyla. Override per environment via values-<env>.yaml.
+# Tuned for medium-traffic AKS clusters running the Grafana LGTM stack.
+
+global:
+  clusterName: aks-prod-eus
+  region: eastus
+  k8sVersion: "1.30"
+  stack: prod
+  # Beyla will be scoped to these namespaces. Empty = cluster-wide.
+  targetNamespaces:
+    - demo
+    - checkout
+    - payments
+  # Whether to fail closed if the LGTM stack endpoints are unreachable
+  # at startup (recommended: true in prod, false in dev).
+  failClosedOnEndpointUnreachable: true
+
+image:
+  repository: grafana/beyla
+  tag: "1.9.5"
+  pullPolicy: IfNotPresent
+  # Pinning by digest is mandatory in prod. Override in values-prod.yaml.
+  digest: ""
+
+beyla:
+  # Traffic profile drives sampling, batching, and buffer sizes.
+  # One of: low | medium | high. Maps to config/beyla-config-<profile>.yaml.
+  profile: medium
+
+  # Telemetry destinations.
+  metrics:
+    enabled: true
+    endpoint: http://prometheus.monitoring.svc.cluster.local:9090/api/v1/write
+    interval: 15s
+  traces:
+    enabled: true
+    endpoint: http://tempo.monitoring.svc.cluster.local:4318
+    samplingRatio: 0.05          # 5% head sampling; tail sampling at Tempo
+  profiles:
+    enabled: true
+    endpoint: http://pyroscope.monitoring.svc.cluster.local:4040
+    cpuSamplingHz: 19            # prime number to avoid harmonic aliasing
+  logs:
+    enabled: false               # Beyla doesn't emit app logs; keep off
+    endpoint: http://loki.monitoring.svc.cluster.local:3100
+
+  # Discovery: which processes to instrument.
+  discovery:
+    # Watch only pods with the matching label. Belt-and-braces against
+    # accidental instrumentation of the LGTM stack itself.
+    podLabelSelector: "beyla.grafana.com/instrument=true"
+    # Skip kube-system and the observability stack itself.
+    excludeNamespaces:
+      - kube-system
+      - monitoring
+      - beyla-system
+
+  # Backpressure: auto-degrade under load instead of OOMing.
+  backpressure:
+    enabled: true
+    cpuHighWatermarkPct: 70      # drop sampling rate at this CPU %
+    memoryHighWatermarkPct: 75
+    dropTracesFirst: true        # traces are sheddable; metrics never are
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 200Mi
+  limits:
+    cpu: 500m
+    memory: 700Mi
+
+# Beyla MUST run as a DaemonSet on every eligible node.
+daemonset:
+  hostPID: true
+  hostNetwork: false             # avoid noisy-neighbor on host net
+  priorityClassName: beyla-critical
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: "10%"      # rolling restarts: never more than 10% of nodes
+  tolerations:
+    - operator: Exists           # tolerate all taints — Beyla must be everywhere
+  nodeSelector:
+    kubernetes.io/os: linux
+
+securityContext:
+  # Beyla needs CAP_SYS_ADMIN + CAP_BPF to load eBPF programs. We do NOT
+  # grant the full privileged escape; we grant the minimum cap set.
+  privileged: false
+  runAsNonRoot: false            # eBPF loader needs UID 0 on most kernels
+  runAsUser: 0
+  capabilities:
+    add:
+      - CAP_SYS_ADMIN
+      - CAP_BPF
+      - CAP_PERFMON              # for perf events (profiling)
+      - CAP_NET_RAW              # raw socket access for TCP/HTTP parsing
+    drop: [ALL]
+  seccompProfile:
+    type: RuntimeDefault
+
+rbac:
+  create: true
+serviceAccount:
+  create: true
+  name: beyla
+  annotations: {}
+
+service:
+  enabled: true                  # exposes /metrics for self-scrape
+  port: 8080
+
+# Prometheus Operator integration.
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+  labels:
+    release: kube-prometheus-stack
+
+# NetworkPolicy: lock Beyla egress to LGTM endpoints only.
+networkPolicy:
+  enabled: true
+  allowedEgress:
+    - prometheus.monitoring.svc.cluster.local
+    - tempo.monitoring.svc.cluster.local
+    - pyroscope.monitoring.svc.cluster.local
+    - loki.monitoring.svc.cluster.local
+    - kubernetes.default.svc.cluster.local
+
+priorityClass:
+  create: true
+  value: 1000000000              # below system-cluster-critical, above default
+
+# Cardinality budget enforced via Beyla label drop rules.
+cardinality:
+  maxSeriesPerService: 50000
+  maxLabelsPerSeries: 12
+  dropLabels:
+    - http.user_agent
+    - http.client_ip
+    - k8s.pod.uid

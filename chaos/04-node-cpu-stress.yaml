@@ -1,0 +1,18 @@
+# Node CPU exhaustion: simulate noisy neighbor.
+# Expected: Beyla backpressure kicks in, drops sampling rate, no app impact.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: node-cpu-stress
+  namespace: beyla-system
+spec:
+  mode: one
+  duration: 5m
+  selector:
+    namespaces: [beyla-system]
+    labelSelectors:
+      app.kubernetes.io/name: beyla
+  stressors:
+    cpu:
+      workers: 4
+      load: 90

@@ -1,0 +1,18 @@
+# Disk full on a single node: stress test the eviction order.
+# Expected: Beyla pods stay (high priority class), low-priority pods evicted first.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: disk-pressure
+  namespace: beyla-system
+spec:
+  mode: one
+  duration: 5m
+  selector:
+    namespaces: [beyla-system]
+    labelSelectors:
+      app.kubernetes.io/name: beyla
+  stressors:
+    cpu:    { workers: 0 }
+    memory: { workers: 0 }
+  stressngStressors: "--hdd 1 --hdd-bytes 4G"

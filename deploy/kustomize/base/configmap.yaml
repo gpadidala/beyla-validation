@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: beyla-config
+data:
+  config.yaml: |
+    # Edit deploy/helm/beyla/values.yaml as the source of truth.
+    # This is the unrendered base — overlays patch per-environment.
+    log_level: info
+    open_port: 8080
+    discovery:
+      services: [{ k8s_namespace: [demo] }]
+      exclude_services: [{ k8s_namespace: [kube-system, monitoring, beyla-system] }]
+    attributes:
+      kubernetes: { enable: true }
+    prometheus_export:
+      port: 8080
+      path: /metrics
+      features: [application, application_span, application_service_graph]
+    otel_traces_export:
+      endpoint: http://tempo.monitoring.svc.cluster.local:4318
+      protocol: http/protobuf
+      sampler: { name: parentbased_traceidratio, arg: 0.05 }
+    profiles:
+      enable: true
+      endpoint: http://pyroscope.monitoring.svc.cluster.local:4040
+      sampling_rate_hz: 19

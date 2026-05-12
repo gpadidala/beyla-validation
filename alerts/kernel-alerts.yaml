@@ -1,0 +1,39 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: beyla-kernel
+  namespace: monitoring
+  labels: { release: kube-prometheus-stack, app.kubernetes.io/component: beyla }
+spec:
+  groups:
+    - name: beyla.kernel
+      interval: 30s
+      rules:
+        - alert: NodeSystemCPUHigh
+          expr: avg by (instance) (rate(node_cpu_seconds_total{mode="system"}[5m])) * 100 > 15
+          for: 10m
+          labels: { severity: warning, team: platform }
+          annotations:
+            summary: "System CPU on {{ $labels.instance }} > 15%"
+            description: "Beyla overhead suspected. Compare against pre-rollout baseline."
+
+        - alert: NodeContextSwitchesSpike
+          expr: rate(node_context_switches_total[5m]) > 2e5
+          for: 10m
+          labels: { severity: warning, team: platform }
+          annotations:
+            summary: "Context switches on {{ $labels.instance }} > 200k/sec"
+
+        - alert: BPFMapMemoryHigh
+          expr: sum by (instance) (node_bpf_map_memory_bytes) > 500e6
+          for: 15m
+          labels: { severity: warning, team: platform }
+          annotations:
+            summary: "BPF map memory on {{ $labels.instance }} > 500MB"
+
+        - alert: NodeMemoryPressure
+          expr: kube_node_status_condition{condition="MemoryPressure", status="true"} == 1
+          for: 5m
+          labels: { severity: critical, team: platform }
+          annotations:
+            summary: "Memory pressure on node {{ $labels.node }}"

@@ -1,0 +1,78 @@
+# Flagger canary for the Beyla DaemonSet itself.
+# Flagger primarily targets Deployments, so this isn't a literal DaemonSet
+# canary — it's a parallel "Beyla v2" Deployment scoped to canary nodes
+# that we use to validate new Beyla image versions before fleet rollout.
+apiVersion: flagger.app/v1beta1
+kind: Canary
+metadata:
+  name: beyla-canary
+  namespace: beyla-system
+spec:
+  provider: prometheus
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: beyla-canary
+  progressDeadlineSeconds: 1800
+  service:
+    port: 8080
+    targetPort: metrics
+  analysis:
+    interval: 1m
+    threshold: 5
+    iterations: 30
+    metrics:
+      # Beyla itself is healthy
+      - name: beyla-export-success
+        templateRef:
+          name: beyla-export-success
+          namespace: monitoring
+        thresholdRange: { min: 99 }
+        interval: 1m
+
+      # Apps under instrumentation are not regressing
+      - name: app-latency-delta
+        templateRef:
+          name: app-latency-p99-delta-pct
+          namespace: monitoring
+        thresholdRange: { max: 5 }
+        interval: 1m
+
+      - name: app-error-rate
+        templateRef:
+          name: app-error-rate
+          namespace: monitoring
+        thresholdRange: { max: 1 }
+        interval: 1m
+
+    webhooks:
+      - name: smoke-test
+        type: pre-rollout
+        url: http://flagger-loadtester.test/
+        timeout: 30s
+        metadata:
+          type: bash
+          cmd: "make validate-quick ENV=canary"
+      - name: rollback-on-regression
+        type: rollback
+        url: http://flagger-loadtester.test/
+        timeout: 30s
+        metadata:
+          type: bash
+          cmd: "make rollback ENV=canary"
+---
+apiVersion: flagger.app/v1beta1
+kind: MetricTemplate
+metadata:
+  name: app-latency-p99-delta-pct
+  namespace: monitoring
+spec:
+  provider:
+    type: prometheus
+    address: http://prometheus.monitoring.svc.cluster.local:9090
+  query: |
+    max(
+      (histogram_quantile(0.99, sum by (le, service_name) (rate(http_server_request_duration_seconds_bucket[5m])))
+       - on(service_name) app:latency_p99_baseline:5m)
+       / on(service_name) app:latency_p99_baseline:5m * 100
+    )

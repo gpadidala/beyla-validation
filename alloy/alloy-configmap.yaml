@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alloy-config-beyla
+  namespace: alloy
+  labels:
+    app.kubernetes.io/name: alloy
+    app.kubernetes.io/component: beyla-pipeline
+data:
+  config.alloy: |
+    # Loaded verbatim from alloy/config.alloy at deploy time by:
+    #   kubectl create configmap alloy-config-beyla -n alloy
+    #     --from-file=config.alloy=alloy/config.alloy
+    #     --dry-run=client -o yaml | kubectl apply -f -
+    # This stub is only present so Helm has something to render against if
+    # the apply ordering is wrong — actual content comes from the file.
+    logging { level = "info" }

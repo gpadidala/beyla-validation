@@ -1,0 +1,7 @@
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata: { name: beyla-critical }
+value: 1000000000
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: "Beyla DaemonSet — high priority so observability isn't evicted first under pressure"

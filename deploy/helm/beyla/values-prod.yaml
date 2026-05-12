@@ -1,0 +1,21 @@
+# Production: pinned digest, full cluster, tighter resource limits.
+global:
+  stack: prod
+  failClosedOnEndpointUnreachable: true
+
+image:
+  # Pin by digest. Update via the release pipeline only.
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  pullPolicy: IfNotPresent
+
+beyla:
+  profile: medium
+  traces:
+    samplingRatio: 0.03          # tighter than staging to control storage
+  backpressure:
+    cpuHighWatermarkPct: 60      # earlier degradation in prod
+    memoryHighWatermarkPct: 70
+
+resources:
+  requests: { cpu: 150m, memory: 250Mi }
+  limits:   { cpu: 500m, memory: 700Mi }

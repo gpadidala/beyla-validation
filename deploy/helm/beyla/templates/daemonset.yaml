@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "beyla.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "beyla.selectorLabels" . | nindent 6 }}
+  updateStrategy:
+    type: {{ .Values.daemonset.updateStrategy.type }}
+    {{- with .Values.daemonset.updateStrategy.rollingUpdate }}
+    rollingUpdate:
+      maxUnavailable: {{ .maxUnavailable }}
+    {{- end }}
+  template:
+    metadata:
+      labels: {{- include "beyla.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Force pod restart when config changes.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.service.port }}"
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      priorityClassName: {{ .Values.daemonset.priorityClassName }}
+      hostPID: {{ .Values.daemonset.hostPID }}
+      hostNetwork: {{ .Values.daemonset.hostNetwork }}
+      dnsPolicy: {{ ternary "ClusterFirstWithHostNet" "ClusterFirst" .Values.daemonset.hostNetwork }}
+      terminationGracePeriodSeconds: 30
+      nodeSelector: {{- toYaml .Values.daemonset.nodeSelector | nindent 8 }}
+      tolerations: {{- toYaml .Values.daemonset.tolerations | nindent 8 }}
+      containers:
+        - name: beyla
+          image: {{ include "beyla.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            privileged: {{ .Values.securityContext.privileged }}
+            runAsUser: {{ .Values.securityContext.runAsUser }}
+            runAsNonRoot: {{ .Values.securityContext.runAsNonRoot }}
+            capabilities:
+              add: {{- toYaml .Values.securityContext.capabilities.add | nindent 16 }}
+              drop: {{- toYaml .Values.securityContext.capabilities.drop | nindent 16 }}
+            seccompProfile:
+              type: {{ .Values.securityContext.seccompProfile.type }}
+          env:
+            - name: BEYLA_CONFIG_PATH
+              value: /etc/beyla/config.yaml
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef: { fieldPath: spec.nodeName }
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef: { fieldPath: metadata.namespace }
+            - name: KUBE_CLUSTER_NAME
+              value: {{ .Values.global.clusterName }}
+            - name: BEYLA_KUBE_METADATA_ENABLE
+              value: "true"
+            - name: BEYLA_TRACE_PRINTER
+              value: "disabled"
+            - name: GOMEMLIMIT
+              value: {{ .Values.resources.limits.memory | quote }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          livenessProbe:
+            httpGet: { path: /healthz, port: metrics }
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 5
+          readinessProbe:
+            httpGet: { path: /readyz, port: metrics }
+            periodSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: config
+              mountPath: /etc/beyla
+              readOnly: true
+            - name: bpf-fs
+              mountPath: /sys/fs/bpf
+              mountPropagation: Bidirectional
+            - name: debugfs
+              mountPath: /sys/kernel/debug
+              readOnly: true
+            - name: cgroup
+              mountPath: /sys/fs/cgroup
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-config
+        - name: bpf-fs
+          hostPath: { path: /sys/fs/bpf, type: DirectoryOrCreate }
+        - name: debugfs
+          hostPath: { path: /sys/kernel/debug, type: Directory }
+        - name: cgroup
+          hostPath: { path: /sys/fs/cgroup, type: Directory }

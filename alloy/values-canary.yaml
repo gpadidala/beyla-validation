@@ -1,0 +1,18 @@
+# Canary: 1% of nodes, single namespace, conservative settings.
+alloy:
+  extraEnv:
+    - name: TARGET_NAMESPACES
+      value: "demo"
+    - name: STACK
+      value: canary
+
+controller:
+  nodeSelector:
+    beyla.grafana.com/canary: "true"
+    kubernetes.io/os: linux
+
+# Lower limits so a misbehaving canary can't starve nodes.
+alloy:
+  resources:
+    requests: { cpu: 50m, memory: 150Mi }
+    limits:   { cpu: 250m, memory: 400Mi }

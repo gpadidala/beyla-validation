@@ -1,0 +1,90 @@
+# Values for the upstream grafana/alloy Helm chart (k8s-monitoring sub-mode).
+# Install: helm install alloy grafana/alloy -n alloy -f values.yaml
+#
+# The chart drops our config.alloy into the pod via a configMap reference;
+# we then mount this in as the active config.
+
+alloy:
+  configMap:
+    create: false
+    name: alloy-config-beyla         # provided by us, see alloy-configmap.yaml
+    key: config.alloy
+
+  # eBPF needs privileged + host PID + BPF caps. Alloy chart supports these
+  # via the standard securityContext map.
+  securityContext:
+    privileged: false
+    runAsUser: 0
+    runAsNonRoot: false
+    capabilities:
+      add: [CAP_BPF, CAP_SYS_ADMIN, CAP_PERFMON, CAP_NET_RAW]
+      drop: [ALL]
+
+  # Mount host paths needed by eBPF.
+  mounts:
+    extra:
+      - { name: bpf-fs,  mountPath: /sys/fs/bpf,       mountPropagation: Bidirectional }
+      - { name: debugfs, mountPath: /sys/kernel/debug, readOnly: true }
+      - { name: cgroup,  mountPath: /sys/fs/cgroup,    readOnly: true }
+
+  # Environment — these populate the sys.env() lookups in config.alloy.
+  envFrom: []
+  extraEnv:
+    - name: CLUSTER_NAME
+      value: aks-prod-eus
+    - name: STACK
+      value: prod
+    - name: TARGET_NAMESPACES
+      value: "demo,checkout,payments"
+    - name: PROMETHEUS_REMOTE_WRITE_URL
+      value: http://prometheus.monitoring.svc.cluster.local:9090/api/v1/write
+    - name: TEMPO_OTLP_ENDPOINT
+      value: tempo.monitoring.svc.cluster.local:4317
+    - name: PYROSCOPE_ENDPOINT
+      value: http://pyroscope.monitoring.svc.cluster.local:4040
+    - name: ALLOY_LOG_LEVEL
+      value: info
+    - name: HOSTNAME
+      valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
+
+  resources:
+    requests: { cpu: 150m, memory: 300Mi }
+    limits:   { cpu: 1,    memory: 1Gi }
+
+  storagePath: /var/lib/alloy
+
+# Run as DaemonSet — one Alloy per node, mirroring Beyla's deployment model.
+controller:
+  type: daemonset
+  hostPID: true
+  priorityClassName: beyla-critical
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "12345"
+  tolerations:
+    - operator: Exists
+  nodeSelector:
+    kubernetes.io/os: linux
+  volumes:
+    extra:
+      - { name: bpf-fs,  hostPath: { path: /sys/fs/bpf,        type: DirectoryOrCreate } }
+      - { name: debugfs, hostPath: { path: /sys/kernel/debug,  type: Directory } }
+      - { name: cgroup,  hostPath: { path: /sys/fs/cgroup,     type: Directory } }
+
+service:
+  enabled: true
+  internalTrafficPolicy: Local
+
+serviceMonitor:
+  enabled: true
+  interval: 30s
+
+rbac:
+  create: true
+# Alloy needs read on pods/nodes/services for discovery.kubernetes — the chart
+# default ClusterRole covers this; we explicitly drop write verbs in CI lint.
+
+# Live debug UI — locked behind ClusterIP, no LoadBalancer.
+alloy:
+  liveDebugging:
+    enabled: true

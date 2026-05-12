@@ -1,0 +1,35 @@
+{
+  "uid": "beyla-scorecard",
+  "title": "Beyla • Rollout Scorecard",
+  "tags": ["beyla", "rollout", "decision"],
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": { "list": [{ "name": "datasource", "type": "datasource", "query": "prometheus" }] },
+  "panels": [
+    { "id": 1, "type": "stat", "title": "Application impact score",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "targets": [{ "expr": "avg(beyla_scorecard_layer_score{layer=\"application\"})", "refId": "A" }],
+      "fieldConfig": { "defaults": { "min": 0, "max": 100, "thresholds": { "steps": [{ "color": "red" }, { "color": "yellow", "value": 70 }, { "color": "green", "value": 90 }] } } } },
+
+    { "id": 2, "type": "stat", "title": "Kernel safety score",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "targets": [{ "expr": "avg(beyla_scorecard_layer_score{layer=\"kernel\"})", "refId": "A" }],
+      "fieldConfig": { "defaults": { "min": 0, "max": 100, "thresholds": { "steps": [{ "color": "red" }, { "color": "yellow", "value": 70 }, { "color": "green", "value": 90 }] } } } },
+
+    { "id": 3, "type": "stat", "title": "Pyroscope pipeline score",
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "expr": "avg(beyla_scorecard_layer_score{layer=\"pyroscope\"})", "refId": "A" }],
+      "fieldConfig": { "defaults": { "min": 0, "max": 100 } } },
+
+    { "id": 4, "type": "stat", "title": "OVERALL — GO if ≥ 80",
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
+      "targets": [{ "expr": "beyla_scorecard_overall_score", "refId": "A" }],
+      "fieldConfig": { "defaults": { "min": 0, "max": 100, "thresholds": { "steps": [{ "color": "red" }, { "color": "yellow", "value": 70 }, { "color": "green", "value": 80 }] } } } },
+
+    { "id": 10, "type": "table", "title": "Failed checks",
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 6 },
+      "targets": [{ "expr": "beyla_scorecard_check{status=\"fail\"}", "refId": "A", "format": "table" }] }
+  ]
+}

@@ -1,0 +1,78 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-config
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "beyla.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    # Generated from Helm values — do not edit in cluster.
+    # Source of truth: deploy/helm/beyla/values*.yaml + config/beyla-config-*.yaml
+    log_level: info
+    open_port: {{ .Values.service.port }}
+
+    discovery:
+      services:
+        - k8s_namespace: {{ .Values.global.targetNamespaces | toJson }}
+      {{- if .Values.beyla.discovery.podLabelSelector }}
+      pod_label_selector: {{ .Values.beyla.discovery.podLabelSelector | quote }}
+      {{- end }}
+      exclude_services:
+        - k8s_namespace: {{ .Values.beyla.discovery.excludeNamespaces | toJson }}
+
+    attributes:
+      kubernetes:
+        enable: true
+        cluster_name: {{ .Values.global.clusterName }}
+      select:
+        http_server_request_duration_seconds:
+          include: [http.route, k8s.namespace.name, k8s.pod.name, service.name, http.response.status_code]
+          exclude: {{ .Values.cardinality.dropLabels | toJson }}
+
+    routes:
+      patterns:
+        - /api/*/products
+        - /api/*/users/:id
+        - /api/*/orders/:id
+      unmatched: heuristic       # never wildcard — explodes cardinality
+
+    {{- if .Values.beyla.metrics.enabled }}
+    prometheus_export:
+      port: {{ .Values.service.port }}
+      path: /metrics
+      features: [application, application_span, application_service_graph, network]
+      ttl: 5m
+    {{- end }}
+
+    {{- if .Values.beyla.traces.enabled }}
+    otel_traces_export:
+      endpoint: {{ .Values.beyla.traces.endpoint }}
+      protocol: http/protobuf
+      sampler:
+        name: parentbased_traceidratio
+        arg: {{ .Values.beyla.traces.samplingRatio }}
+      batch:
+        timeout: 5s
+        max_export_batch_size: 512
+    {{- end }}
+
+    {{- if .Values.beyla.profiles.enabled }}
+    profiles:
+      enable: true
+      endpoint: {{ .Values.beyla.profiles.endpoint }}
+      sampling_rate_hz: {{ .Values.beyla.profiles.cpuSamplingHz }}
+      types: [cpu, memory]
+    {{- end }}
+
+    # Backpressure: degrade gracefully under load.
+    {{- if .Values.beyla.backpressure.enabled }}
+    rate_limit:
+      cpu_high_watermark: {{ .Values.beyla.backpressure.cpuHighWatermarkPct }}
+      memory_high_watermark: {{ .Values.beyla.backpressure.memoryHighWatermarkPct }}
+      drop_traces_first: {{ .Values.beyla.backpressure.dropTracesFirst }}
+    {{- end }}
+
+    # Cardinality budget — enforced at the source.
+    metrics:
+      max_series_per_service: {{ .Values.cardinality.maxSeriesPerService }}
+      max_labels_per_series: {{ .Values.cardinality.maxLabelsPerSeries }}

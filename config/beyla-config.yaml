@@ -1,0 +1,74 @@
+# Default Beyla config (medium-traffic profile).
+# In-cluster: the Helm chart renders this from values.yaml.
+# This file is the BAKED FALLBACK shipped in the container image —
+# used only if the ConfigMap volume is missing at startup.
+
+log_level: info
+open_port: 8080
+
+discovery:
+  services:
+    - k8s_namespace: [demo, checkout, payments]
+  exclude_services:
+    - k8s_namespace: [kube-system, monitoring, beyla-system]
+  pod_label_selector: "beyla.grafana.com/instrument=true"
+
+attributes:
+  kubernetes:
+    enable: true
+    cluster_name: aks-prod-eus
+  select:
+    http_server_request_duration_seconds:
+      include:
+        - http.route
+        - http.response.status_code
+        - k8s.namespace.name
+        - k8s.pod.name
+        - service.name
+      exclude:
+        - http.user_agent
+        - http.client_ip
+        - k8s.pod.uid
+
+routes:
+  patterns:
+    - /api/*/products
+    - /api/*/users/:id
+    - /api/*/orders/:id
+    - /healthz
+    - /readyz
+  unmatched: heuristic
+  ignore_patterns:
+    - /metrics
+    - /debug/*
+
+prometheus_export:
+  port: 8080
+  path: /metrics
+  features: [application, application_span, application_service_graph, network]
+  ttl: 5m
+
+otel_traces_export:
+  endpoint: http://tempo.monitoring.svc.cluster.local:4318
+  protocol: http/protobuf
+  sampler:
+    name: parentbased_traceidratio
+    arg: 0.05
+  batch:
+    timeout: 5s
+    max_export_batch_size: 512
+
+profiles:
+  enable: true
+  endpoint: http://pyroscope.monitoring.svc.cluster.local:4040
+  sampling_rate_hz: 19
+  types: [cpu, memory]
+
+rate_limit:
+  cpu_high_watermark: 70
+  memory_high_watermark: 75
+  drop_traces_first: true
+
+metrics:
+  max_series_per_service: 50000
+  max_labels_per_series: 12

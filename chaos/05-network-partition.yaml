@@ -1,0 +1,18 @@
+# Network partition: split Beyla from the entire monitoring namespace.
+# Expected: Beyla keeps node-local metrics, app stays healthy.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: network-partition
+  namespace: beyla-system
+spec:
+  action: partition
+  direction: both
+  duration: 3m
+  mode: all
+  selector:
+    namespaces: [beyla-system]
+  target:
+    selector:
+      namespaces: [monitoring]
+    mode: all

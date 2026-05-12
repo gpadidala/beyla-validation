@@ -1,0 +1,8 @@
+server: { http_listen_port: 4040 }
+storage:
+  backend: filesystem
+  filesystem: { dir: /tmp/pyroscope }
+limits:
+  max_series_per_user: 5000000
+  max_labels_per_series: 15
+  max_global_series_per_metric: 100000

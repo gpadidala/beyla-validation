@@ -1,0 +1,69 @@
+// Local-dev Alloy config: same shape as alloy/config.alloy, but talks to
+// docker-compose hostnames and uses always_on tracing for visibility.
+
+logging { level = "debug"; format = "logfmt" }
+
+livedebugging { enabled = true }
+
+beyla.ebpf "default" {
+  open_port = "8080"
+
+  discovery {
+    services {
+      // local dev: instrument every Go/Rust process on the host
+      exe_path = ".*"
+    }
+  }
+
+  routes {
+    unmatched = "heuristic"
+    ignored_patterns = ["/metrics", "/healthz"]
+  }
+
+  metrics {
+    features = ["application", "application_span", "application_service_graph"]
+  }
+
+  output {
+    metrics = [otelcol.processor.batch.default.input]
+    traces  = [otelcol.processor.batch.default.input]
+  }
+}
+
+otelcol.processor.batch "default" {
+  timeout = "2s"
+  output {
+    metrics = [otelcol.exporter.prometheus.default.input]
+    traces  = [otelcol.exporter.otlp.tempo.input]
+  }
+}
+
+otelcol.exporter.prometheus "default" {
+  forward_to = [prometheus.remote_write.default.receiver]
+}
+
+prometheus.remote_write "default" {
+  endpoint {
+    url = "http://prometheus:9090/api/v1/write"
+  }
+  external_labels = { cluster = "local-dev" }
+}
+
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = "tempo:4317"
+    tls { insecure = true }
+  }
+}
+
+pyroscope.ebpf "default" {
+  forward_to       = [pyroscope.write.default.receiver]
+  collect_interval = "10s"
+  sample_rate      = 19
+}
+
+pyroscope.write "default" {
+  endpoint {
+    url = "http://pyroscope:4040"
+  }
+}

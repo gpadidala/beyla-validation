@@ -1,0 +1,23 @@
+# Tempo OTLP endpoint unreachable: network blackhole.
+# Expected: Beyla queue fills, oldest traces dropped (no retry storm),
+# traces resume on recovery.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: collector-unreachable
+  namespace: beyla-system
+spec:
+  action: partition
+  direction: to
+  duration: 5m
+  mode: all
+  selector:
+    namespaces: [beyla-system]
+    labelSelectors:
+      app.kubernetes.io/name: beyla
+  target:
+    selector:
+      namespaces: [monitoring]
+      labelSelectors:
+        app.kubernetes.io/name: tempo
+    mode: all

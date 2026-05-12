@@ -1,0 +1,24 @@
+# Pyroscope health queries.
+
+# ── Ingest rate (compressed bytes/sec) ───────────────────────────────────
+pyroscope_ingest_bytes_per_sec = sum(rate(pyroscope_distributor_received_compressed_bytes_total[5m]))
+
+# ── Active series ────────────────────────────────────────────────────────
+pyroscope_active_series = sum(pyroscope_ingester_memory_series)
+
+# ── Write failure rate ───────────────────────────────────────────────────
+pyroscope_write_failures = sum(rate(pyroscope_distributor_ingester_appends_failures_total[5m]))
+
+# ── Per-tenant series share (top 10) ─────────────────────────────────────
+pyroscope_top_tenants = topk(10, sum by (tenant) (pyroscope_ingester_memory_series))
+
+# ── Disk usage % ─────────────────────────────────────────────────────────
+pyroscope_disk_pct = max(kubelet_volume_stats_used_bytes{persistentvolumeclaim=~"pyroscope.*"} /
+                         kubelet_volume_stats_capacity_bytes{persistentvolumeclaim=~"pyroscope.*"}) * 100
+
+# ── Ingester memory pressure ─────────────────────────────────────────────
+pyroscope_ingester_mem_pct = max(container_memory_working_set_bytes{pod=~"pyroscope-ingester.*"} /
+                                  container_spec_memory_limit_bytes{pod=~"pyroscope-ingester.*"}) * 100
+
+# ── Query latency P99 ────────────────────────────────────────────────────
+pyroscope_query_p99 = histogram_quantile(0.99, sum by (le) (rate(pyroscope_query_engine_request_duration_seconds_bucket[5m])))

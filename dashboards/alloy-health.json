@@ -1,0 +1,58 @@
+{
+  "uid": "alloy-health",
+  "title": "Alloy • Pipeline Health",
+  "tags": ["alloy", "beyla", "platform"],
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": {
+    "list": [
+      { "name": "datasource", "type": "datasource", "query": "prometheus" },
+      { "name": "cluster", "type": "query", "datasource": "${datasource}", "query": "label_values(alloy_component_controller_running_components, cluster)", "refresh": 2, "includeAll": true, "multi": true }
+    ]
+  },
+  "panels": [
+    { "id": 1, "type": "stat", "title": "Alloy pods running",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [{ "expr": "count(up{job=\"alloy\",cluster=~\"$cluster\"})", "refId": "A" }] },
+
+    { "id": 2, "type": "stat", "title": "Components healthy %",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "targets": [{ "expr": "sum(alloy_component_controller_running_components{health_type=\"healthy\",cluster=~\"$cluster\"}) / sum(alloy_component_controller_running_components{cluster=~\"$cluster\"}) * 100", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "thresholds": { "steps": [{ "color": "red" }, { "color": "yellow", "value": 95 }, { "color": "green", "value": 99 }] } } } },
+
+    { "id": 3, "type": "stat", "title": "Beyla embedded?",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "expr": "count(beyla_build_info{cluster=~\"$cluster\"}) > 0", "refId": "A" }] },
+
+    { "id": 4, "type": "stat", "title": "Config reload errors (1h)",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "targets": [{ "expr": "sum(increase(alloy_config_last_load_success_timestamp_seconds == 0[1h]))", "refId": "A" }] },
+
+    { "id": 10, "type": "timeseries", "title": "Pipeline throughput — metrics out",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 4 },
+      "targets": [{ "expr": "sum by (cluster) (rate(prometheus_remote_storage_samples_total{cluster=~\"$cluster\"}[5m]))", "refId": "A", "legendFormat": "{{cluster}}" }] },
+
+    { "id": 11, "type": "timeseries", "title": "Pipeline throughput — traces out",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 4 },
+      "targets": [{ "expr": "sum by (cluster) (rate(otelcol_exporter_sent_spans_total{cluster=~\"$cluster\"}[5m]))", "refId": "A", "legendFormat": "{{cluster}}" }] },
+
+    { "id": 12, "type": "timeseries", "title": "Tail sampling — decisions",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 13 },
+      "targets": [{ "expr": "sum by (policy) (rate(otelcol_processor_tail_sampling_count_traces_sampled_total{cluster=~\"$cluster\"}[5m]))", "refId": "A", "legendFormat": "{{policy}}" }] },
+
+    { "id": 13, "type": "timeseries", "title": "Exporter send failures",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 13 },
+      "targets": [{ "expr": "sum by (exporter) (rate(otelcol_exporter_send_failed_metric_points_total{cluster=~\"$cluster\"}[5m]) + rate(otelcol_exporter_send_failed_spans_total{cluster=~\"$cluster\"}[5m]))", "refId": "A", "legendFormat": "{{exporter}}" }] },
+
+    { "id": 14, "type": "timeseries", "title": "Alloy CPU per pod",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 22 },
+      "targets": [{ "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{pod=~\"alloy-.*\",cluster=~\"$cluster\"}[5m]))", "refId": "A", "legendFormat": "{{pod}}" }] },
+
+    { "id": 15, "type": "timeseries", "title": "Alloy memory per pod",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 22 },
+      "targets": [{ "expr": "sum by (pod) (container_memory_working_set_bytes{pod=~\"alloy-.*\",cluster=~\"$cluster\"})", "refId": "A", "legendFormat": "{{pod}}" }],
+      "fieldConfig": { "defaults": { "unit": "bytes" } } }
+  ]
+}

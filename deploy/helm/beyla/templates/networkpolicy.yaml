@@ -1,0 +1,47 @@
+{{- if .Values.networkPolicy.enabled }}
+# Beyla egresses ONLY to:
+#  - kube-apiserver (K8s metadata)
+#  - Prometheus remote_write
+#  - Tempo OTLP
+#  - Pyroscope ingest
+#  - Loki (if enabled)
+# Anything else (DNS aside) is blocked.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "beyla.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "beyla.selectorLabels" . | nindent 6 }}
+  policyTypes: [Egress, Ingress]
+  ingress:
+    # Allow Prometheus scrape from monitoring namespace.
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: monitoring }
+      ports:
+        - { protocol: TCP, port: {{ .Values.service.port }} }
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: monitoring }
+      ports:
+        - { protocol: TCP, port: 9090 }   # Prometheus
+        - { protocol: TCP, port: 4317 }   # Tempo OTLP gRPC
+        - { protocol: TCP, port: 4318 }   # Tempo OTLP HTTP
+        - { protocol: TCP, port: 4040 }   # Pyroscope
+        - { protocol: TCP, port: 3100 }   # Loki
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    # kube-apiserver
+    - to:
+        - ipBlock: { cidr: 0.0.0.0/0 }    # service CIDR, narrow per cluster
+      ports:
+        - { protocol: TCP, port: 443 }
+{{- end }}

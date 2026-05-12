@@ -1,0 +1,33 @@
+{
+  "uid": "beyla-meta-obs",
+  "title": "Beyla • Cost of Observability",
+  "tags": ["beyla", "meta", "cost"],
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": { "list": [{ "name": "datasource", "type": "datasource", "query": "prometheus" }] },
+  "panels": [
+    { "id": 1, "type": "stat", "title": "Beyla CPU burn % of cluster",
+      "gridPos": { "h": 5, "w": 8, "x": 0, "y": 0 },
+      "targets": [{ "expr": "beyla:cpu_burn_pct:5m", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "thresholds": { "steps": [{ "color": "green" }, { "color": "yellow", "value": 2 }, { "color": "red", "value": 5 }] } } } },
+    { "id": 2, "type": "stat", "title": "Beyla mem burn % of cluster",
+      "gridPos": { "h": 5, "w": 8, "x": 8, "y": 0 },
+      "targets": [{ "expr": "beyla:mem_burn_pct:5m", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "thresholds": { "steps": [{ "color": "green" }, { "color": "yellow", "value": 2 }, { "color": "red", "value": 5 }] } } } },
+    { "id": 3, "type": "stat", "title": "Pyroscope storage growth (GB/day proj)",
+      "gridPos": { "h": 5, "w": 8, "x": 16, "y": 0 },
+      "targets": [{ "expr": "sum(rate(pyroscope_distributor_received_compressed_bytes_total[1h])) * 86400 / 1024 / 1024 / 1024", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "decgbytes" } } },
+
+    { "id": 10, "type": "timeseries", "title": "CPU burn over time",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
+      "targets": [{ "expr": "beyla:cpu_burn_pct:5m", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "percent" } } },
+
+    { "id": 11, "type": "timeseries", "title": "Telemetry efficiency (spans/CPU-sec)",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
+      "targets": [{ "expr": "sum(rate(beyla_otel_traces_total[5m])) / sum(rate(container_cpu_usage_seconds_total{pod=~\"beyla-.*\"}[5m]))", "refId": "A" }] }
+  ]
+}

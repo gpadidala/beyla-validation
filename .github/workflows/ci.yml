@@ -1,0 +1,115 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with: { version: v3.14.0 }
+
+      - name: Helm lint
+        run: helm lint deploy/helm/beyla
+
+      - name: Helm template (renders all env value files)
+        run: |
+          for env in canary staging prod aks-prod; do
+            helm template beyla deploy/helm/beyla \
+              -f deploy/helm/beyla/values.yaml \
+              -f deploy/helm/beyla/values-${env}.yaml \
+              --namespace beyla-system > /tmp/render-${env}.yaml
+          done
+
+      - name: yamllint
+        run: |
+          pip install yamllint
+          yamllint -c .yamllint deploy/ config/ alerts/ slo/ chaos/ rollout/ scorecard/thresholds.yaml cost/cost-model-inputs.yaml
+
+      - name: Validate alert rules via promtool
+        run: |
+          docker run --rm -v $PWD/alerts:/alerts prom/prometheus:v2.55.1 \
+            sh -c 'for f in /alerts/*.yaml; do promtool check rules "$f"; done'
+
+      - name: Validate dashboards (JSON syntax)
+        run: |
+          for f in dashboards/*.json; do
+            python3 -c "import json,sys; json.load(open('$f'))" || exit 1
+          done
+
+      - name: shellcheck
+        run: |
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          shellcheck validation/*.sh validation/lib/*.sh scripts/*.sh compatibility/*.sh
+
+      - name: Python lint
+        run: |
+          pip install ruff
+          ruff check cost/ scorecard/
+
+      - name: Alloy fmt
+        run: |
+          docker run --rm -v $PWD:/work -w /work grafana/alloy:v1.4.2 \
+            fmt --test alloy/config.alloy examples/alloy-config-local.alloy
+
+  scorecard-sanity:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install pyyaml
+      - name: Synthetic scorecard run
+        run: |
+          mkdir -p /tmp/reports
+          cat > /tmp/reports/checks.jsonl <<EOF
+          {"ts":"2026-05-11T00:00:00Z","layer":"application","check":"latency_p99","status":"pass","score":100,"message":"ok"}
+          {"ts":"2026-05-11T00:00:00Z","layer":"kernel","check":"attach","status":"pass","score":100,"message":"ok"}
+          {"ts":"2026-05-11T00:00:00Z","layer":"pyroscope","check":"ingest","status":"pass","score":100,"message":"ok"}
+          EOF
+          python3 scorecard/scorecard.py --reports /tmp/reports --thresholds scorecard/thresholds.yaml --env canary
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: lint
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20", cache: "npm", cache-dependency-path: e2e/package.json }
+      - name: Install Playwright + browsers
+        working-directory: e2e
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+      - name: Bring up Alloy + LGTM stack
+        run: |
+          docker compose up -d
+          bash e2e/scripts/wait-for-grafana.sh
+      - name: Run Playwright suite
+        working-directory: e2e
+        env: { SKIP_WEBSERVER: "1" }
+        run: npm test
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-screenshots
+          path: e2e/screenshots/
+      - name: Upload HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-html-report
+          path: e2e/reports/html/
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
